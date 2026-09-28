@@ -52,7 +52,7 @@ The migrations create the private `report-photos` bucket and policies. Files are
    ```
 
 ### 5. Configure Environment Variables
-Set the browser keys and server-only credentials in `.env`:
+Set the browser keys and server-only credentials in `.env` for local development:
 ```env
 VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<your-publishable-or-anon-key>
@@ -61,6 +61,8 @@ SUPABASE_SERVICE_ROLE_KEY=<server-only-service-role-key>
 ```
 
 Never expose the service-role key to browser code or prefix it with `VITE_`. It is required for server-side field-member Auth provisioning; normal browser access uses the publishable/anon key and RLS.
+
+For the Vercel frontend build, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under Project Settings → Environment Variables. Vite embeds these values at build time, so redeploy after changing them. Do not add `SUPABASE_SERVICE_ROLE_KEY` as a `VITE_*` variable or use `SUPABASE_SECRET_KEY` in frontend code. Keep service-role credentials server-side only, and configure `GEMINI_API_KEY` in Supabase Edge Function secrets.
 
 ### 6. Run the Application
 ```bash
