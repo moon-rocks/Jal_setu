@@ -1,0 +1,6 @@
+{
+  "name": "JalSetu — Har Boond, Behtar Bihar",
+  "description": "Civic-tech water problem reporting and management platform connecting citizens with municipal administration for identifying, verifying, and resolving water infrastructure issues.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
