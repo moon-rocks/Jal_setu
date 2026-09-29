@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
 import {
   User,
   Mail,
@@ -16,12 +17,56 @@ import {
   LogOut,
   ChevronRight,
   Droplets,
+  Pencil,
+  Compass,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useLocationContext } from '../../context/LocationContext';
+import { authService } from '../../services/authService';
 
 export const CitizenProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { location, isLocating, error: locationError, getFreshLocation } = useLocationContext();
+  const [isEditing, setIsEditing] = useState(false);
+  const [fullName, setFullName] = useState(profile?.fullName || '');
+  const [phone, setPhone] = useState(profile?.phone || '');
+  const [wardName, setWardName] = useState(profile?.wardName || '');
+  const [address, setAddress] = useState(profile?.address || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSaved, setProfileSaved] = useState(false);
+
+  const handleEditProfile = () => {
+    setFullName(profile?.fullName || '');
+    setPhone(profile?.phone || '');
+    setWardName(profile?.wardName || '');
+    setAddress(profile?.address || '');
+    setProfileError('');
+    setProfileSaved(false);
+    setIsEditing(true);
+  };
+
+  const handleSaveProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!user) return;
+
+    setIsSaving(true);
+    setProfileError('');
+    const saved = await authService.updateProfile(user.id, { fullName, phone, wardName, address });
+    if (saved) {
+      await refreshProfile();
+      setIsEditing(false);
+      setProfileSaved(true);
+    } else {
+      setProfileError('Your changes could not be saved. Please try again.');
+    }
+    setIsSaving(false);
+  };
+
+  const handleTurnOnLocation = async () => {
+    await getFreshLocation();
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -73,6 +118,72 @@ export const CitizenProfilePage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <Card variant="default" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Device Location</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {location
+                ? location.address || `${location.ward}, ${location.city}`
+                : 'Location access is off'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="civic"
+            size="sm"
+            onClick={handleTurnOnLocation}
+            isLoading={isLocating}
+            leftIcon={<Compass className="w-4 h-4" />}
+          >
+            Turn on location
+          </Button>
+        </div>
+        {locationError && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3" role="status" aria-live="polite">
+            <p className="text-xs text-amber-900">
+              {locationError} Please check your browser&apos;s location permission and try again.
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={handleTurnOnLocation} isLoading={isLocating}>
+              Try again
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      <Card variant="default" className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Personal Details</h3>
+            <p className="text-xs text-slate-500 mt-1">Update your contact and address information.</p>
+          </div>
+          {!isEditing && (
+            <Button type="button" variant="outline" size="sm" onClick={handleEditProfile} leftIcon={<Pencil className="w-3.5 h-3.5" />}>
+              Edit Profile
+            </Button>
+          )}
+        </div>
+
+        {profileSaved && <p className="text-xs text-emerald-700" role="status">Profile updated successfully.</p>}
+        {isEditing && (
+          <form onSubmit={handleSaveProfile} className="space-y-3">
+            <Input label="Full Name" value={fullName} onChange={(event) => setFullName(event.target.value)} required />
+            <Input label="Mobile Number" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
+            <Input label="Municipal Ward" value={wardName} onChange={(event) => setWardName(event.target.value)} />
+            <Input label="Street / Landmark Address" value={address} onChange={(event) => setAddress(event.target.value)} />
+            {profileError && <p className="text-xs text-rose-600" role="alert">{profileError}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="civic" size="sm" isLoading={isSaving}>
+                Save Profile
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
 
       {/* Navigation Sections */}
       <div className="space-y-4">
