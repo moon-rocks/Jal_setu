@@ -1,4 +1,5 @@
 # JalSetu — Water Intelligence & Issue Reporting Platform
+
 > "Har Boond, Behtar Bihar."
 
 Civic-tech water management, leak detection, and municipal dispatch platform for the State of Bihar, connecting citizens with municipal engineers and field repair units.
@@ -18,10 +19,12 @@ Civic-tech water management, leak detection, and municipal dispatch platform for
 ## 🚀 Setup & Deployment Guide
 
 ### 1. Create a Supabase Project
+
 1. Go to [Supabase Dashboard](https://supabase.com) and create a new project.
 2. Note your **Project URL** and **Anon / Public Key** from `Project Settings > API`.
 
 ### 2. Apply Database Migrations
+
 Install the [Supabase CLI](https://supabase.com/docs/guides/cli), authenticate, link the project, and apply every migration in order:
 
 ```bash
@@ -35,9 +38,11 @@ The migrations create the schema, Auth profile trigger, PostGIS RPCs, private ev
 `wards` supports city-scoped ward numbers so Muzaffarpur and Patna can both contain a `Ward 1`. Import verified municipal records (including centroids/boundaries) into `public.wards` before enabling manual ward selection or GIS ward lookup. The repository intentionally contains no invented ward records or coordinates.
 
 ### 3. Configure Storage
+
 The migrations create the private `report-photos` bucket and policies. Files are stored under their report UUID; clients receive expiring signed URLs only when RLS confirms access to the report. Do not make this bucket public.
 
 ### 4. Deploy Supabase Edge Functions (Gemini AI Analysis)
+
 1. Install Supabase CLI:
    ```bash
    npm install -g supabase
@@ -46,13 +51,15 @@ The migrations create the private `report-photos` bucket and policies. Files are
    ```bash
    supabase secrets set GEMINI_API_KEY=<your-gemini-api-key>
    ```
-4. Deploy the analysis function:
+3. Deploy the analysis function:
    ```bash
    supabase functions deploy analyze-report
    ```
 
 ### 5. Configure Environment Variables
+
 Set the browser keys and server-only credentials in `.env` for local development:
+
 ```env
 VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<your-publishable-or-anon-key>
@@ -64,11 +71,26 @@ Never expose the service-role key to browser code or prefix it with `VITE_`. It 
 
 For the Vercel frontend build, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under Project Settings → Environment Variables. Vite embeds these values at build time, so redeploy after changing them. Do not add `SUPABASE_SERVICE_ROLE_KEY` as a `VITE_*` variable or use `SUPABASE_SECRET_KEY` in frontend code. Keep service-role credentials server-side only, and configure `GEMINI_API_KEY` in Supabase Edge Function secrets.
 
+If your Express backend and React frontend are hosted on different origins, set `VITE_API_BASE_URL` to the backend URL, for example `https://jalsetu-api.example.com`. When the frontend and API share the same host, the app uses the current origin automatically.
+
 ### 6. Run the Application
+
 ```bash
 npm install
 npm run dev
 ```
+
+### 7. Deploy the Express Backend on a Node Host
+
+Use a Node.js host such as Render, Railway, Fly.io, or a VM, then set the same environment values as above and start the app with:
+
+```bash
+npm install
+npm run build
+PORT=3000 node server.ts
+```
+
+The app serves the built React bundle from the same Express instance in production, while API routes like `/api/admin/create-team-member` remain available to the frontend.
 
 ---
 

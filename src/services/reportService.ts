@@ -111,7 +111,12 @@ export const reportService = {
         setTimeout(() => reject(new Error('AI analysis timeout after 12 seconds.')), 12000);
       });
 
-      await Promise.race([invokePromise, timeoutPromise]);
+      const result = await Promise.race([invokePromise, timeoutPromise]);
+      const parsed = result?.data ?? {};
+      if (parsed?.success === false || parsed?.error) {
+        throw new Error(parsed?.error || 'AI analysis did not complete successfully.');
+      }
+      return parsed;
     };
 
     try {
@@ -173,7 +178,7 @@ export const reportService = {
       }
 
       try {
-        await invokeAiAnalysisSafely({
+        const aiResult = await invokeAiAnalysisSafely({
           reportId: data.id,
           photoUrl,
           issueType: dto.issueType,
@@ -182,8 +187,26 @@ export const reportService = {
           longitude: dto.longitude,
           wardName: dto.wardName,
         });
+
+        if (aiResult?.success) {
+          await supabase.from('reports').update({
+            ai_status: 'verified_by_ai',
+            ai_confidence: aiResult.confidence ?? null,
+            ai_evidence: Array.isArray(aiResult.detectedFeatures) ? aiResult.detectedFeatures : [],
+            updated_at: new Date().toISOString(),
+          }).eq('id', data.id);
+        } else {
+          await supabase.from('reports').update({
+            ai_status: 'human_review_required',
+            updated_at: new Date().toISOString(),
+          }).eq('id', data.id);
+        }
       } catch (edgeError) {
         console.warn('Edge function invoke note:', edgeError);
+        await supabase.from('reports').update({
+          ai_status: 'human_review_required',
+          updated_at: new Date().toISOString(),
+        }).eq('id', data.id);
       }
 
       return { success: true, report: { ...(await this.mapRowToReport(data)), photoUrl } };
@@ -361,7 +384,10 @@ export const reportService = {
         minute: '2-digit',
       }) : '',
       photoUrl: await this.getSignedPhotoUrl(row.photo_url),
+      aiStatus: row.ai_status || 'not_run',
       aiConfidence: row.ai_confidence ?? undefined,
+      aiSummary: row.ai_summary ?? undefined,
+      aiRecommendation: row.ai_recommendation ?? undefined,
       aiEvidence: row.ai_evidence || [],
       assignedTeamId: row.assigned_team_id,
       assignedTeamName: row.assigned_team_name,

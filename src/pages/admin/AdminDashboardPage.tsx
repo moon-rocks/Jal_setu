@@ -280,6 +280,9 @@ export const AdminDashboardPage: React.FC = () => {
             />
           ) : (
             <Card variant="default" padding="sm" className="h-[400px] flex flex-col justify-between overflow-hidden">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold text-amber-800">
+                Authorized admin review required before accepting this AI recommendation.
+              </div>
               <div className="space-y-3">
                 {/* Evidence Image Preview */}
                 <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-16/9 flex items-center justify-center">

@@ -6,102 +6,166 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const parseGeminiJson = (text: string) => {
+  const cleaned = text.trim();
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error('Gemini returned malformed JSON.');
+  }
+
+  return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return new Response(JSON.stringify({ success: false, error: 'Supabase environment is not configured.' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
-    const { reportId, photoUrl, issueType, description, latitude, longitude, wardName } = await req.json();
+    const payload = await req.json();
+    const { reportId, photoUrl, issueType, description, latitude, longitude, wardName } = payload ?? {};
 
-    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    if (!reportId) {
+      return new Response(JSON.stringify({ success: false, error: 'A reportId is required for AI analysis.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    if (!geminiApiKey) {
+      await supabase.from('reports').update({ ai_status: 'human_review_required' }).eq('id', reportId);
+      return new Response(JSON.stringify({ success: false, error: 'AI analysis is unavailable: Gemini API key is not configured.' }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    let confidence = 88.0;
-    let summary = 'Water infrastructure anomaly detected from visual evidence and telemetry stamp.';
-    let recommendation = 'Dispatch nearest Ward repair team with hydraulic sleeve.';
-    let detectedFeatures = [
-      'Pressurized fluid spray or standing surface leakage',
-      'Municipal roadway or standpost vicinity',
-      `GPS matched to verified municipal sector (${wardName || 'Ward 12'})`,
-      'Visual pipe fracture verified',
-    ];
+    const promptText = `Analyze this water issue report for municipal operations. Return JSON only.
+Issue Type: ${String(issueType || 'unknown')}
+Description: ${String(description || 'No description provided')}
+Ward: ${String(wardName || 'Unknown ward')}
+Coordinates: ${latitude ?? 'unknown'}, ${longitude ?? 'unknown'}
+Photo URL: ${photoUrl || 'No image provided'}
 
-    if (geminiApiKey) {
+Requirements:
+- confidence: number between 75 and 98
+- summary: 1-2 sentence engineering assessment
+- recommendation: a repair action for the municipal team
+- detectedFeatures: string[] with 3-5 short evidence items
+- issueLabel: short label for the detected issue
+`;
+
+    const imageParts: Array<Record<string, unknown>> = [];
+    if (photoUrl) {
       try {
-        const prompt = `Analyze this water issue report from Bihar civic municipal infrastructure.
-Issue Type: ${issueType}
-Description: ${description || 'None provided'}
-Ward: ${wardName || 'Ward 12'}
-Location: ${latitude}, ${longitude}
-Photo: ${photoUrl || 'Provided'}
-
-Provide a JSON response with:
-{
-  "confidence": number between 75 and 98,
-  "summary": "1-2 sentence engineering assessment",
-  "recommendation": "recommended repair intervention",
-  "detectedFeatures": ["feature 1", "feature 2", "feature 3"]
-}`;
-
-        const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' },
-          }),
-        });
-
-        if (aiResponse.ok) {
-          const aiData = await aiResponse.json();
-          const parsed = JSON.parse(aiData.candidates[0].content.parts[0].text);
-          if (parsed.confidence) confidence = parsed.confidence;
-          if (parsed.summary) summary = parsed.summary;
-          if (parsed.recommendation) recommendation = parsed.recommendation;
-          if (parsed.detectedFeatures) detectedFeatures = parsed.detectedFeatures;
+        const photoResponse = await fetch(photoUrl);
+        const contentType = photoResponse.headers.get('content-type') || 'image/jpeg';
+        if (photoResponse.ok) {
+          const bytes = new Uint8Array(await photoResponse.arrayBuffer());
+          const base64 = btoa(String.fromCharCode(...bytes));
+          imageParts.push({ inline_data: { mime_type: contentType, data: base64 } });
         }
-      } catch (geminiErr) {
-        console.error('Gemini call fallback:', geminiErr);
+      } catch (photoError) {
+        console.warn('Photo fetch failed during AI analysis:', photoError);
       }
     }
 
-    // Persist analysis in public.ai_analyses
-    if (reportId) {
-      await supabase.from('ai_analyses').insert({
-        report_id: reportId,
-        issue_type: issueType,
-        confidence,
-        summary,
-        recommendation,
-        detected_features: detectedFeatures,
-        model: 'gemini-2.5-flash',
-      });
+    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: promptText },
+            ...imageParts,
+          ],
+        }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    });
 
-      // Update report status
-      await supabase.from('reports').update({
-        ai_status: 'verified_by_ai',
-        ai_confidence: confidence,
-        ai_evidence: detectedFeatures,
-      }).eq('id', reportId);
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      throw new Error(`Gemini request failed (${aiResponse.status}): ${errorText.slice(0, 200)}`);
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        confidence,
-        summary,
-        recommendation,
-        detectedFeatures,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const aiData = await aiResponse.json();
+    const textReply = aiData?.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part?.text || '')
+      .join('') || '';
+
+    if (!textReply) {
+      throw new Error('Gemini returned no usable content.');
+    }
+
+    const parsed = parseGeminiJson(textReply);
+    const confidence = Number(parsed.confidence ?? 0);
+    const summary = String(parsed.summary || 'Human review required for this report.');
+    const recommendation = String(parsed.recommendation || 'Dispatch a municipal field crew for manual verification.');
+    const detectedFeatures = Array.isArray(parsed.detectedFeatures) ? parsed.detectedFeatures.map((item) => String(item)).slice(0, 5) : [];
+    const issueLabel = String(parsed.issueLabel || issueType || 'water_issue');
+
+    if (!Number.isFinite(confidence) || confidence < 75 || confidence > 98) {
+      throw new Error('Gemini returned an invalid confidence score.');
+    }
+
+    const analysisInsert = {
+      report_id: reportId,
+      issue_type: issueLabel,
+      severity: 'high',
+      confidence,
+      summary,
+      recommendation,
+      detected_features: detectedFeatures,
+      model: 'gemini-2.5-flash',
+    };
+
+    const insertResponse = await supabase.from('ai_analyses').insert(analysisInsert);
+    if (insertResponse.error) {
+      throw new Error(insertResponse.error.message);
+    }
+
+    const updateResponse = await supabase.from('reports').update({
+      ai_status: 'verified_by_ai',
+      ai_confidence: confidence,
+      ai_evidence: detectedFeatures,
+      updated_at: new Date().toISOString(),
+    }).eq('id', reportId);
+
+    if (updateResponse.error) {
+      throw new Error(updateResponse.error.message);
+    }
+
+    return new Response(JSON.stringify({ success: true, confidence, summary, recommendation, detectedFeatures, issueLabel }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400,
+    const message = error instanceof Error ? error.message : 'AI analysis failed.';
+
+    if (typeof (globalThis as any).Deno !== 'undefined') {
+      const maybeReportId = await req.clone().json().catch(() => ({})).then((body) => body?.reportId).catch(() => undefined);
+      if (maybeReportId) {
+        await supabase.from('reports').update({ ai_status: 'human_review_required', updated_at: new Date().toISOString() }).eq('id', maybeReportId);
+      }
+    }
+
+    return new Response(JSON.stringify({ success: false, error: message, requiresHumanReview: true }), {
+      status: 503,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

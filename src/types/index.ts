@@ -47,7 +47,10 @@ export interface ReportItem {
   priority: PriorityLevel;
   description?: string;
   photoUrl?: string;
+  aiStatus?: 'verified_by_ai' | 'human_review_required' | 'not_run';
   aiConfidence?: number;
+  aiSummary?: string;
+  aiRecommendation?: string;
   aiEvidence?: string[];
   assignedTeamId?: string;
   assignedTeamName?: string;

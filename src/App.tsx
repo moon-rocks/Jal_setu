@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LanguageProvider } from './context/LanguageContext';
 import { AuthProvider } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
@@ -62,7 +62,7 @@ export default function App() {
     <LanguageProvider>
       <AuthProvider>
         <LocationProvider>
-          <BrowserRouter>
+          <HashRouter>
             <Routes>
               {/* ------------------------------------------------------------- */}
               {/* 1. CITIZEN HYBRID AUTH FLOW (Email OTP -> Set Password -> Email+Password Login) */}
@@ -138,7 +138,7 @@ export default function App() {
               {/* Fallback Catch-all Route */}
               <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
-          </BrowserRouter>
+          </HashRouter>
         </LocationProvider>
       </AuthProvider>
     </LanguageProvider>

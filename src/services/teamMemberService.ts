@@ -10,6 +10,59 @@ import {
 } from '../types/teamMember';
 import { auditService } from './auditService';
 
+const buildApiUrl = (path: string) => {
+  const configuredBase = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (configuredBase) {
+    return `${configuredBase}${normalizedPath}`;
+  }
+
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}${normalizedPath}`;
+  }
+
+  return normalizedPath;
+};
+
+const readJsonResponse = async <T = any>(response: Response): Promise<{ ok: boolean; data?: T; error?: string }> => {
+  const contentType = response.headers.get('content-type') || '';
+  const text = await response.text();
+  const trimmedText = text.trim();
+
+  if (!trimmedText) {
+    return {
+      ok: response.ok,
+      error: response.ok ? 'Empty response from server.' : `Request failed (${response.status})`,
+    };
+  }
+
+  if (!contentType.includes('application/json')) {
+    return {
+      ok: false,
+      error: trimmedText.slice(0, 220).replace(/\s+/g, ' ') || `Request failed (${response.status})`,
+    };
+  }
+
+  try {
+    const data = JSON.parse(trimmedText) as T;
+    return {
+      ok: response.ok,
+      data,
+      error: response.ok
+        ? undefined
+        : (typeof data === 'object' && data && 'error' in (data as object))
+          ? String((data as any).error)
+          : `Request failed (${response.status})`,
+    };
+  } catch {
+    return {
+      ok: false,
+      error: trimmedText.slice(0, 220).replace(/\s+/g, ' ') || 'Server returned an invalid JSON response.',
+    };
+  }
+};
+
 const requireSupabase = () => {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
 };
@@ -158,19 +211,20 @@ export const teamMemberService = {
     requireSupabase();
     try {
       const session = (await supabase.auth.getSession()).data.session;
-      const response = await fetch('/api/admin/create-team-member', {
+      const response = await fetch(buildApiUrl('/api/admin/create-team-member'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/json',
           ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify(dto),
       });
-      const result = await response.json();
-      if (!response.ok || !result.success || !result.teamMember) {
-        return { success: false, error: result.error || 'Unable to provision the Supabase Auth account.' };
+      const result = await readJsonResponse<{ success?: boolean; teamMember?: any; error?: string }>(response);
+      if (!response.ok || !result.data?.success || !result.data.teamMember) {
+        return { success: false, error: result.error || result.data?.error || 'Unable to provision the Supabase Auth account.' };
       }
-      return { success: true, teamMember: mapTeamMember(result.teamMember) };
+      return { success: true, teamMember: mapTeamMember(result.data.teamMember) };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unable to reach the provisioning service.' };
     }
@@ -209,12 +263,13 @@ export const teamMemberService = {
   async resetPassword(email: string, memberId: string): Promise<boolean> {
     if (!isSupabaseConfigured) return false;
     try {
-      const response = await fetch('/api/admin/reset-team-password', {
+      const response = await fetch(buildApiUrl('/api/admin/reset-team-password'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ email, memberId }),
       });
-      return response.ok;
+      const result = await readJsonResponse<{ success?: boolean; error?: string }>(response);
+      return response.ok && !!result.data?.success;
     } catch {
       return false;
     }

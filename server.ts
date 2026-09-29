@@ -3,8 +3,12 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
