@@ -32,7 +32,6 @@ export interface CitizenNavItem {
   labelKey: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  highlight?: boolean;
   section?: 'main' | 'services' | 'account';
   badge?: string;
 }
@@ -40,7 +39,7 @@ export interface CitizenNavItem {
 export const CITIZEN_NAV_ITEMS: CitizenNavItem[] = [
   { path: '/home', labelKey: 'nav.home', label: 'Home', icon: Home, section: 'main' },
   { path: '/map', labelKey: 'nav.map', label: 'Water Map', icon: MapPin, section: 'main' },
-  { path: '/report', labelKey: 'nav.report', label: 'Report Issue', icon: PlusCircle, highlight: true, section: 'main', badge: 'Action' },
+  { path: '/report', labelKey: 'nav.report', label: 'Report Issue', icon: PlusCircle, section: 'main' },
   { path: '/my-reports', labelKey: 'nav.myReports', label: 'My Reports', icon: FileText, section: 'main' },
   { path: '/services', labelKey: 'nav.services', label: 'Water Services', icon: Droplets, section: 'services' },
   { path: '/notices', labelKey: 'nav.notices', label: 'Notices', icon: Megaphone, section: 'services' },
@@ -168,8 +167,6 @@ export const CitizenSidebar: React.FC<CitizenSidebarProps> = ({
                       className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-out active:scale-[0.98] ${
                         isActive
                           ? 'bg-gradient-to-r from-sky-600 via-sky-600 to-blue-600 text-white shadow-sm shadow-sky-600/30 font-semibold translate-x-0.5'
-                          : item.highlight
-                          ? 'bg-gradient-to-r from-sky-50 via-blue-50/70 to-sky-100/60 border border-sky-300/80 text-sky-800 hover:from-sky-100 hover:to-blue-100 hover:border-sky-400 hover:translate-x-1 font-semibold shadow-2xs'
                           : 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-900 hover:translate-x-1'
                       } ${isCollapsed ? 'justify-center px-0' : ''}`}
                     >
@@ -177,8 +174,6 @@ export const CitizenSidebar: React.FC<CitizenSidebarProps> = ({
                         className={`w-5 h-5 shrink-0 transition-transform duration-200 ease-out group-hover:scale-110 ${
                           isActive
                             ? 'text-white'
-                            : item.highlight
-                            ? 'text-sky-600 group-hover:rotate-6'
                             : 'text-slate-500 group-hover:text-slate-700'
                         }`}
                       />
@@ -191,8 +186,6 @@ export const CitizenSidebar: React.FC<CitizenSidebarProps> = ({
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 tracking-wide transition-all duration-200 ease-out group-hover:scale-105 ${
                                 isActive
                                   ? 'bg-white/25 text-white backdrop-blur-xs shadow-2xs'
-                                  : item.highlight
-                                  ? 'bg-sky-600 text-white shadow-2xs'
                                   : 'bg-sky-100 text-sky-800'
                               }`}
                             >

@@ -49,12 +49,10 @@ export const CitizenLayout: React.FC = () => {
                     className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 ${
                       isActive
                         ? 'bg-sky-600 text-white font-semibold shadow-xs'
-                        : item.highlight
-                        ? 'bg-sky-50 text-sky-800 font-semibold'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                   >
-                    <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : item.highlight ? 'text-sky-600' : 'text-slate-500'}`} />
+                    <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`} />
                     <span>{t(item.labelKey)}</span>
                   </NavLink>
                 );
