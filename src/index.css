@@ -10,6 +10,80 @@
   }
 }
 
+.team-panel-content [class*="bg-[#"] {
+  background-color: #fff !important;
+}
+
+.team-panel-content [class*="from-[#"],
+.team-panel-content [class*="via-[#"],
+.team-panel-content [class*="to-[#"] {
+  background-image: none !important;
+}
+
+.team-panel-content [class*="bg-slate-950"],
+.team-panel-content [class*="bg-slate-900"] {
+  background-color: #f8fafc !important;
+}
+
+.team-panel-content [class*="bg-slate-800"],
+.team-panel-content [class*="bg-slate-700"] {
+  background-color: #f1f5f9 !important;
+}
+
+.team-panel-content [class~="bg-amber-500"] {
+  background-color: #0284c7 !important;
+  color: #fff !important;
+}
+
+.team-panel-content [class*="bg-amber-500/"] {
+  background-color: #e0f2fe !important;
+}
+
+.team-panel-content [class*="hover:bg-amber-"]:hover {
+  background-color: #0369a1 !important;
+}
+
+.team-panel-content [class*="text-white"],
+.team-panel-content [class*="text-slate-100"] {
+  color: #0f172a !important;
+}
+
+.team-panel-content [class*="text-slate-200"],
+.team-panel-content [class*="text-slate-300"] {
+  color: #334155 !important;
+}
+
+.team-panel-content [class*="text-slate-400"] {
+  color: #64748b !important;
+}
+
+.team-panel-content [class*="text-amber-"] {
+  color: #0369a1 !important;
+}
+
+.team-panel-content button[class~="bg-amber-500"],
+.team-panel-content a[class~="bg-amber-500"] {
+  color: #fff !important;
+}
+
+.team-panel-content [class*="border-slate-800"],
+.team-panel-content [class*="border-slate-700"],
+.team-panel-content [class*="border-amber-"] {
+  border-color: #e2e8f0 !important;
+}
+
+.team-panel-content [class*="focus:border-amber-"]:focus {
+  border-color: #0284c7 !important;
+}
+
+.team-panel-content [class*="rounded-3xl"] {
+  border-radius: 1rem !important;
+}
+
+.team-panel-content [class*="shadow-xl"],
+.team-panel-content [class*="shadow-lg"] {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08) !important;
+}
 
 
 /* Custom smooth scrollbar */
@@ -17,14 +91,16 @@
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.4);
   border-radius: 9999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.6);
 }
-

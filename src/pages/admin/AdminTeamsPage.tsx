@@ -305,16 +305,17 @@ export const AdminTeamsPage: React.FC = () => {
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                   <MapPin className="w-4 h-4 text-slate-500" />
-                  <span>Team Locations</span>
+                  <span>Assigned Complaint Locations</span>
                 </h3>
                 <span className="text-[11px] text-slate-400 font-mono">{teamsList.length} teams</span>
               </div>
 
               <MapContainer
                 mode="admin"
-                title="Field Unit Telemetry"
-                subtitle="Team location data"
-                emptyMessage="No team GPS coordinates are available."
+                title="Assigned Complaint Locations"
+                subtitle={`${selectedTeamReports.length} reports assigned to this team`}
+                complaints={selectedTeamReports}
+                emptyMessage="No assigned complaints with locations."
                 heightClass="h-[360px]"
               />
             </div>

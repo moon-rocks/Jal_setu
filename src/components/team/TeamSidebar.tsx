@@ -12,11 +12,10 @@ import {
   User,
   HelpCircle,
   LogOut,
-  HardHat,
-  ChevronLeft,
   ChevronRight,
   Droplet,
-  Radio,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { JalSetuLogo } from '../ui/JalSetuLogo';
 import { useAuth } from '../../context/AuthContext';
@@ -39,12 +38,12 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
 
   return (
     <aside
-      className={`flex flex-col bg-[#071120] text-slate-200 border-r border-slate-800 transition-all duration-300 select-none z-20 shrink-0 h-full ${
-        isCollapsed ? 'w-[74px]' : 'w-64 lg:w-68'
+      className={`flex h-full shrink-0 flex-col bg-[#0B1527] text-slate-200 border-r border-slate-800 transition-all duration-300 select-none z-20 ${
+        isCollapsed ? 'w-[76px]' : 'w-64 lg:w-70'
       }`}
     >
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/80">
+      <div className="h-18 flex items-center justify-between px-4 border-b border-slate-800/80">
         <NavLink to="/team/dashboard" className="flex items-center overflow-hidden gap-2">
           {isCollapsed ? (
             <div className="mx-auto">
@@ -53,8 +52,8 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
           ) : (
             <div className="flex items-center gap-2">
               <JalSetuLogo size="sm" variant="light" showTagline={false} />
-              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold text-[10px] tracking-wider uppercase">
-                Field
+              <span className="px-2 py-0.5 rounded-full bg-sky-600/20 text-sky-300 font-bold text-[10px] tracking-wider uppercase">
+                Team
               </span>
             </div>
           )}
@@ -67,13 +66,13 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className="hidden md:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
         )}
       </div>
 
       {/* Navigation List */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1.5">
         {TEAM_NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact
@@ -85,15 +84,15 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
               <NavLink
                 to={item.path}
                 onClick={onCloseMobile}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-xs sm:text-sm transition-all duration-150 ${
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 ${
                   isActive
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'
+                    ? 'bg-sky-600 text-white font-semibold shadow-sm shadow-sky-600/30'
+                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
                 } ${isCollapsed ? 'justify-center px-0' : ''}`}
               >
                 <Icon
                   className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${
-                    isActive ? 'text-slate-950' : 'text-slate-400 group-hover:text-slate-200'
+                    isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
                   }`}
                 />
                 {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -110,25 +109,24 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
         })}
       </nav>
 
-      {/* Field Duty Status Box */}
+      {/* Team assignment summary */}
       {!isCollapsed && (
-        <div className="px-3 py-2">
-          <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1.5 text-xs text-left">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-                Unit Status
-              </span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Active
-              </span>
+        <div className="p-3 border-t border-slate-800/80">
+          <div className="p-3.5 rounded-xl bg-gradient-to-b from-sky-950/40 to-slate-900 border border-sky-900/30 text-left">
+            <div className="flex items-center gap-2 text-sky-400 text-xs font-semibold mb-1">
+              <Droplet className="w-3.5 h-3.5" />
+              <span>Field Operations</span>
             </div>
-            <p className="font-semibold text-white truncate">
+            <p className="text-xs font-bold text-white tracking-tight truncate">
               {teamMemberProfile?.teamName || 'No team assigned'}
             </p>
-            <p className="text-[11px] text-slate-400 truncate">
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
               {teamMemberProfile?.assignedArea || 'No area assigned'}
             </p>
+            <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-bold text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              {teamMemberProfile?.status === 'inactive' ? 'Inactive' : 'Active'}
+              </span>
           </div>
         </div>
       )}
@@ -138,7 +136,7 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
         <NavLink
           to="/team/help"
           onClick={onCloseMobile}
-          className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors ${
+          className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors ${
             isCollapsed ? 'justify-center px-0' : ''
           }`}
         >
@@ -152,7 +150,7 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({
             await signOut();
             navigate('/team/login');
           }}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer ${
+          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-rose-400 hover:bg-slate-800/60 transition-colors cursor-pointer ${
             isCollapsed ? 'justify-center px-0' : ''
           }`}
         >

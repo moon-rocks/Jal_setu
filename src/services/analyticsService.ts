@@ -49,7 +49,7 @@ export const analyticsService = {
 
     let reportsQuery = supabase
       .from('reports')
-      .select('id, status, priority, issue_type, ward_name, created_at, submitted_at, resolved_at, assigned_team_id, assigned_team_name, assigned_member_id');
+      .select('id, status, priority, issue_type, ward_name, created_at, submitted_at, resolved_at, assigned_team_id, assigned_member_id');
 
     if (filters.ward && filters.ward !== 'all') {
       reportsQuery = reportsQuery.eq('ward_name', filters.ward);
@@ -63,7 +63,7 @@ export const analyticsService = {
 
     const [{ data: reports, error: reportsError }, { data: teams, error: teamsError }] = await Promise.all([
       reportsQuery.order('submitted_at', { ascending: false }),
-      supabase.from('field_teams').select('id, name, status, active_tasks_count, members_count'),
+      supabase.from('field_teams').select('id, name, status, members_count'),
     ]);
 
     if (reportsError) throw reportsError;
@@ -120,11 +120,11 @@ export const analyticsService = {
 
     const teamWorkload: TeamWorkloadEntry[] = (teamRows || []).map((team) => {
       const teamReports = reportRows.filter((report) => {
-        const matchesTeam = report.assigned_team_id === team.id || report.assigned_team_name === team.name;
+        const matchesTeam = report.assigned_team_id === team.id;
         return matchesTeam && ['team_assigned', 'repair_in_progress', 'under_review', 'submitted'].includes(normalizeStatus(report.status));
       });
       const highPriorityReports = teamReports.filter((report) => ['high', 'critical'].includes(normalizeStatus(report.priority))).length;
-      const loadScore = Math.min(100, Math.max(0, teamReports.length * 25 + highPriorityReports * 15 + (team.active_tasks_count || 0) * 10));
+      const loadScore = Math.min(100, Math.max(0, teamReports.length * 25 + highPriorityReports * 15));
 
       return {
         teamId: team.id,

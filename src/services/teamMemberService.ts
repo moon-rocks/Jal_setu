@@ -421,7 +421,6 @@ export const teamMemberService = {
       assigned_member_id: member.id,
       assigned_member_name: member.name,
       assigned_team_id: member.teamId,
-      assigned_team_name: member.teamName,
       assignment_deadline: options?.deadline || null,
       assignment_instructions: options?.instructions || null,
       assigned_by_name: options?.assignedBy || userData.user?.email || null,

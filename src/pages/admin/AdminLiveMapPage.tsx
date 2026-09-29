@@ -5,15 +5,15 @@ import { Button } from '../../components/ui/Button';
 import { Filter, Layers, Compass, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { reportService } from '../../services/reportService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
-import { ReportItem } from '../../types';
+import { ReportMapPoint } from '../../types';
 
 export const AdminLiveMapPage: React.FC = () => {
   const [selectedWard, setSelectedWard] = useState('all');
   const [selectedIssue, setSelectedIssue] = useState('all');
-  const [reports, setReports] = useState<ReportItem[]>([]);
+  const [reports, setReports] = useState<ReportMapPoint[]>([]);
 
   const fetchReports = async () => {
-    const data = await reportService.getReports();
+    const data = await reportService.getMapLocations();
     setReports(data);
   };
 
@@ -34,6 +34,10 @@ export const AdminLiveMapPage: React.FC = () => {
     }
     return true;
   });
+  const wardOptions = Array.from(new Set(reports.map((report) => report.location.ward).filter(Boolean))).sort();
+  const mappedCount = filteredReports.filter((report) =>
+    typeof report.location.latitude === 'number' && typeof report.location.longitude === 'number'
+  ).length;
 
   return (
     <div className="space-y-6 select-none">
@@ -41,10 +45,10 @@ export const AdminLiveMapPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-            Municipal GIS Live Incident Map
+            Municipal Complaint Location Map
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Real-time geospatial tracking of citizen water issue telemetry across Muzaffarpur ({filteredReports.length} incidents plotted).
+            {mappedCount} complaint locations plotted across Muzaffarpur.
           </p>
         </div>
 
@@ -55,12 +59,8 @@ export const AdminLiveMapPage: React.FC = () => {
             onChange={(e) => setSelectedWard(e.target.value)}
             className="text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-medium cursor-pointer focus:outline-none"
           >
-            <option value="all">All 15 Wards</option>
-            <option value="ward 8">Ward 8</option>
-            <option value="ward 9">Ward 9</option>
-            <option value="ward 11">Ward 11</option>
-            <option value="ward 12">Ward 12</option>
-            <option value="ward 14">Ward 14</option>
+            <option value="all">All wards</option>
+            {wardOptions.map((ward) => <option key={ward} value={ward.toLowerCase()}>{ward}</option>)}
           </select>
 
           <select
@@ -80,9 +80,10 @@ export const AdminLiveMapPage: React.FC = () => {
       {/* Map Viewport Container */}
       <MapContainer
         mode="admin"
-        title="Muzaffarpur Municipal Water Network"
-        subtitle={`Hydrology Layer: Burhi Gandak River Basin · ${filteredReports.length} Active Feeds`}
-        emptyMessage={filteredReports.length === 0 ? 'No active reports match the selected filters.' : undefined}
+        title="Complaint Locations"
+        subtitle={`Muzaffarpur · ${mappedCount} locations mapped`}
+        complaints={filteredReports}
+        emptyMessage={filteredReports.length === 0 ? 'No complaints match the selected filters.' : 'Matching complaints have no valid coordinates.'}
         heightClass="h-[520px] sm:h-[600px]"
       />
 
@@ -90,18 +91,18 @@ export const AdminLiveMapPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card variant="default" padding="sm">
           <p className="text-[10px] uppercase font-bold text-slate-400">GIS Coordinate System</p>
-          <p className="text-xs font-bold text-slate-800 mt-0.5">WGS 84 / UTM Zone 45N (Bihar)</p>
+          <p className="text-xs font-bold text-slate-800 mt-0.5">WGS 84 geographic coordinates</p>
         </Card>
         <Card variant="default" padding="sm">
           <p className="text-[10px] uppercase font-bold text-slate-400">Telemetry Feed Status</p>
           <p className="text-xs font-bold text-emerald-600 mt-0.5 flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Connected to Muzaffarpur SCADA ({reports.length} Reports Synchronized)
+            {reports.length} complaints synchronized
           </p>
         </Card>
         <Card variant="default" padding="sm">
           <p className="text-[10px] uppercase font-bold text-slate-400">Resolution SLA Buffer</p>
-          <p className="text-xs font-bold text-slate-800 mt-0.5">Rapid Leakage Target: ≤ 4.0 Hours</p>
+          <p className="text-xs font-bold text-slate-800 mt-0.5">{mappedCount} complaint locations visible</p>
         </Card>
       </div>
     </div>

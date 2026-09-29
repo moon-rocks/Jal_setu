@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Card } from '../../components/ui/Card';
 import { ErrorState, LoadingState } from '../../components/ui/LoadingState';
 import { BarChart3, PieChart, TrendingUp, Clock, MapPin, Users, Filter } from 'lucide-react';
@@ -12,6 +12,8 @@ export const AdminAnalyticsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [filters, setFilters] = useState<DashboardFilters>({ dateRange: '30d', ward: 'all', issueType: 'all' });
+  const dailyChartRef = useRef<HTMLDivElement | null>(null);
+  const [dailyChartWidth, setDailyChartWidth] = useState(0);
 
   const fetchMetrics = async (nextFilters: DashboardFilters = filters) => {
     setIsLoading(true);
@@ -33,7 +35,21 @@ export const AdminAnalyticsPage: React.FC = () => {
     void fetchMetrics(filters);
   });
 
+  useEffect(() => {
+    const chart = dailyChartRef.current;
+    if (!chart) return;
+
+    const updateChartWidth = () => setDailyChartWidth(chart.clientWidth);
+    updateChartWidth();
+
+    const observer = new ResizeObserver(updateChartWidth);
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, []);
+
   const dailyReports = metrics?.dailyReports || [];
+  const dateLabelSlots = Math.max(2, Math.floor(dailyChartWidth / 64));
+  const dateLabelInterval = Math.max(1, Math.ceil(dailyReports.length / dateLabelSlots));
   const maxDailyReports = Math.max(1, ...dailyReports.map((item) => item.count));
   const issueBreakdown = Object.entries(metrics?.issueBreakdown || {}).sort((a, b) => b[1] - a[1]);
   const wardBreakdown = Object.entries(metrics?.wardBreakdown || {}).sort((a, b) => b[1] - a[1]);
@@ -105,15 +121,19 @@ export const AdminAnalyticsPage: React.FC = () => {
             <span className="text-[11px] text-slate-400 font-mono">Trend</span>
           </div>
 
-          <div className="h-56 rounded-xl border border-dashed border-slate-200 flex items-center justify-center p-6 text-center bg-slate-50/50">
+          <div ref={dailyChartRef} className="h-56 min-w-0 rounded-xl border border-dashed border-slate-200 flex items-center justify-center p-6 text-center bg-slate-50/50">
             {isLoading ? <LoadingState message="Loading report analytics..." /> : errorMessage ? null : metrics?.totalReports === 0 ? (
               <p className="text-xs text-slate-400 font-medium">No report activity in the selected window.</p>
             ) : metrics ? (
-              <div className="w-full flex items-end justify-between gap-2 h-40 pt-4">
-                {dailyReports.map((item) => (
-                  <div key={`${item.label}-${Math.random().toString(36).slice(2,7)}`} className="flex-1 flex flex-col items-center gap-1">
+              <div className="w-full min-w-0 flex items-end justify-between gap-2 h-40 pt-4">
+                {dailyReports.map((item, index) => (
+                  <div key={`${item.label}-${index}`} className="min-w-0 flex-1 flex flex-col items-center gap-1">
                     <div className="w-full bg-sky-500 rounded-t-md" style={{ height: `${(item.count / maxDailyReports) * 100}%` }} />
-                    <span className="text-[10px] text-slate-400 font-mono">{item.label}</span>
+                    {(index === 0 || index === dailyReports.length - 1 || index % dateLabelInterval === 0) && (
+                      <span className={`whitespace-nowrap text-[10px] text-slate-400 font-mono ${index === 0 ? 'self-start' : index === dailyReports.length - 1 ? 'self-end' : ''}`}>
+                        {item.label}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

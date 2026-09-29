@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { IssueType, PriorityLevel, ReportItem, ReportStatus } from '../types';
+import { IssueType, PriorityLevel, ReportItem, ReportMapPoint, ReportStatus } from '../types';
 
 async function getAuthenticatedCitizenUser() {
   if (!isSupabaseConfigured) return null;
@@ -74,6 +74,34 @@ export const reportService = {
     } catch (e) {
       throw e;
     }
+  },
+
+  async getMapLocations(): Promise<ReportMapPoint[]> {
+    if (!isSupabaseConfigured) {
+      throw new Error('Supabase is not configured.');
+    }
+
+    const { data, error } = await supabase
+      .from('reports')
+      .select('id, report_number, title, issue_type, status, priority, latitude, longitude, ward_name, city, address')
+      .order('submitted_at', { ascending: false });
+
+    if (error) throw error;
+
+    return (data || []).map((row) => ({
+      id: row.report_number || row.id,
+      issueType: row.issue_type as IssueType,
+      issueTitle: row.title || 'Water issue',
+      status: row.status as ReportStatus,
+      priority: row.priority as PriorityLevel,
+      location: {
+        ward: row.ward_name || '',
+        city: row.city || '',
+        latitude: row.latitude ?? undefined,
+        longitude: row.longitude ?? undefined,
+        address: row.address || undefined,
+      },
+    }));
   },
 
   async getReportById(id: string): Promise<ReportItem | null> {
@@ -234,7 +262,6 @@ export const reportService = {
       } else if (newStatus === 'team_assigned') {
         payload.assigned_at = new Date().toISOString();
         if (options?.assignedTeamId) payload.assigned_team_id = options.assignedTeamId;
-        if (options?.assignedTeamName) payload.assigned_team_name = options.assignedTeamName;
       } else if (newStatus === 'repair_in_progress') {
         payload.started_at = new Date().toISOString();
       } else if (newStatus === 'resolved') {

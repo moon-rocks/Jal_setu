@@ -122,18 +122,15 @@ export const TeamFieldMapPage: React.FC = () => {
         <div className="lg:col-span-2 relative h-[520px] rounded-2xl overflow-hidden border border-slate-800 shadow-xl bg-slate-950">
           <MapContainer
             mode="admin"
+            complaints={selectedReport ? [{
+              id: selectedReport.reportNumber || selectedReport.id,
+              issueType: selectedReport.issueType,
+              issueTitle: selectedReport.title,
+              status: selectedReport.status,
+              priority: selectedReport.priority,
+              location: selectedReport.location,
+            }] : []}
             heightClass="h-[520px]"
-            detectedLocation={
-              selectedReport
-                ? {
-                    ward: selectedReport.location.ward,
-                    city: selectedReport.location.city,
-                    latitude: selectedReport.location.latitude,
-                    longitude: selectedReport.location.longitude,
-                    accuracy: selectedReport.location.accuracy || 6,
-                  }
-                : undefined
-            }
           />
 
           {/* Map bottom floating counter */}

@@ -14,10 +14,29 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('SUPABASE_URL and a Supabase API key must be configured in the server environment.');
+const isPlaceholderValue = (value?: string) => !value || /example\.supabase\.co|your-project-id|placeholder|replace[-_ ]?me/i.test(value);
+const supabaseUrl = [process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL].find((value) => !isPlaceholderValue(value));
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+const candidateServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const isServiceRoleKey = (key?: string) => {
+  if (!key) return false;
+  if (key.startsWith('sb_secret_')) return true;
+
+  const payload = key.split('.')[1];
+  if (!payload) return false;
+  try {
+    return JSON.parse(Buffer.from(payload, 'base64url').toString()).role === 'service_role';
+  } catch {
+    return false;
+  }
+};
+
+const hasServiceRoleKey = isServiceRoleKey(candidateServiceRoleKey);
+const supabaseKey = hasServiceRoleKey ? candidateServiceRoleKey! : supabaseAnonKey!;
+
+if (!supabaseUrl || isPlaceholderValue(supabaseAnonKey)) {
+  throw new Error('A valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured.');
 }
 
 const serverSupabase = createClient(supabaseUrl, supabaseKey, {
@@ -26,6 +45,17 @@ const serverSupabase = createClient(supabaseUrl, supabaseKey, {
     autoRefreshToken: false,
   },
 });
+
+const createCallerClient = (accessToken: string) => createClient(supabaseUrl, supabaseAnonKey!, {
+  global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+const requireServiceRole = (res: Response, message: string) => {
+  if (hasServiceRoleKey) return true;
+  res.status(503).json({ success: false, error: message });
+  return false;
+};
 
 // Helper: verify admin credentials from bearer token
 async function verifyAdminCaller(req: Request): Promise<{ isAdmin: boolean; userId?: string; email?: string }> {
@@ -36,12 +66,13 @@ async function verifyAdminCaller(req: Request): Promise<{ isAdmin: boolean; user
 
   const token = authHeader.split(' ')[1];
   try {
-    const { data: { user }, error } = await serverSupabase.auth.getUser(token);
+    const callerSupabase = createCallerClient(token);
+    const { data: { user }, error } = await callerSupabase.auth.getUser(token);
     if (error || !user) {
       return { isAdmin: false };
     }
 
-    const { data: profile } = await serverSupabase
+    const { data: profile } = await callerSupabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -70,9 +101,7 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
     if (!isAdmin) {
       return res.status(403).json({ success: false, error: 'Unauthorized: Only Municipal Administrators can create Team Members.' });
     }
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return res.status(503).json({ success: false, error: 'Team-member provisioning requires the server-side Supabase service role configuration.' });
-    }
+    if (!requireServiceRole(res, 'Team-member provisioning requires a valid server-side Supabase service-role key.')) return;
 
     const {
       fullName,
@@ -233,6 +262,10 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
 // -------------------------------------------------------------
 app.post('/api/admin/update-team-member', async (req: Request, res: Response) => {
   try {
+    const { isAdmin, userId: adminUserId } = await verifyAdminCaller(req);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'Unauthorized.' });
+    if (!requireServiceRole(res, 'Team-member updates require a valid server-side Supabase service-role key.')) return;
+
     const { id, updates } = req.body;
     if (!id || !updates) {
       return res.status(400).json({ success: false, error: 'Member ID and updates required' });
@@ -254,10 +287,11 @@ app.post('/api/admin/update-team-member', async (req: Request, res: Response) =>
     if (updates.responsibilities) payload.responsibilities = updates.responsibilities;
     if (updates.status) payload.status = updates.status;
 
-    await serverSupabase
+    const { error: updateError } = await serverSupabase
       .from('team_members')
       .update(payload)
       .eq('id', id);
+    if (updateError) return res.status(400).json({ success: false, error: updateError.message });
 
     // Also sync profiles if user_id is linked
     if (updates.fullName || updates.phone) {
@@ -271,12 +305,14 @@ app.post('/api/admin/update-team-member', async (req: Request, res: Response) =>
         const profileUpdates: Record<string, any> = {};
         if (updates.fullName) profileUpdates.full_name = updates.fullName;
         if (updates.phone) profileUpdates.phone = updates.phone;
-        await serverSupabase.from('profiles').update(profileUpdates).eq('id', member.user_id);
+        const { error: profileUpdateError } = await serverSupabase.from('profiles').update(profileUpdates).eq('id', member.user_id);
+        if (profileUpdateError) return res.status(400).json({ success: false, error: profileUpdateError.message });
       }
     }
 
     // Audit log
     await serverSupabase.from('audit_logs').insert({
+      user_id: adminUserId,
       action: 'UPDATE_TEAM_MEMBER',
       entity_type: 'TEAM_MEMBER',
       entity_id: id,
@@ -294,17 +330,23 @@ app.post('/api/admin/update-team-member', async (req: Request, res: Response) =>
 // -------------------------------------------------------------
 app.post('/api/admin/toggle-team-status', async (req: Request, res: Response) => {
   try {
+    const { isAdmin, userId: adminUserId } = await verifyAdminCaller(req);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'Unauthorized.' });
+    if (!requireServiceRole(res, 'Team status changes require a valid server-side Supabase service-role key.')) return;
+
     const { id, status } = req.body;
-    if (!id || !status) {
+    if (!id || !['active', 'inactive'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Member ID and target status required' });
     }
 
-    await serverSupabase
+    const { error: updateError } = await serverSupabase
       .from('team_members')
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', id);
+    if (updateError) return res.status(400).json({ success: false, error: updateError.message });
 
     await serverSupabase.from('audit_logs').insert({
+      user_id: adminUserId,
       action: status === 'active' ? 'ENABLE_TEAM_MEMBER' : 'DISABLE_TEAM_MEMBER',
       entity_type: 'TEAM_MEMBER',
       entity_id: id,
@@ -324,9 +366,7 @@ app.post('/api/admin/reset-team-password', async (req: Request, res: Response) =
   try {
     const { isAdmin } = await verifyAdminCaller(req);
     if (!isAdmin) return res.status(403).json({ success: false, error: 'Unauthorized.' });
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return res.status(503).json({ success: false, error: 'Password administration requires server-side Supabase service role configuration.' });
-    }
+    if (!requireServiceRole(res, 'Password administration requires a valid server-side Supabase service-role key.')) return;
     const { email, memberId } = req.body;
     if (!email) return res.status(400).json({ success: false, error: 'Email is required.' });
     const { error: resetError } = await serverSupabase.auth.resetPasswordForEmail(email.trim().toLowerCase());

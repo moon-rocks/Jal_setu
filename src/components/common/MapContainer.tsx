@@ -1,8 +1,22 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { Plus, Minus, Compass, MapPin, Layers, RefreshCw, CheckCircle2, Shield, Radio } from 'lucide-react';
 import { locationService, RealLocationData } from '../../services/locationService';
+import { ReportMapPoint } from '../../types';
+
+const EMPTY_COMPLAINTS: ReportMapPoint[] = [];
+
+const escapePopupText = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character] || character));
 
 export interface MapContainerProps {
   mode?: 'citizen' | 'admin' | 'detail';
@@ -26,6 +40,7 @@ export interface MapContainerProps {
   className?: string;
   heightClass?: string;
   emptyMessage?: string;
+  complaints?: ReportMapPoint[];
 }
 
 // 100% Free OpenStreetMap and Open Geospatial Tiles (Zero API Key Required)
@@ -68,10 +83,12 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   className = '',
   heightClass = 'h-[360px] sm:h-[420px]',
   emptyMessage,
+  complaints = EMPTY_COMPLAINTS,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const complaintLayerRef = useRef<L.MarkerClusterGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const accuracyCircleRef = useRef<L.Circle | null>(null);
   const watchIdRef = useRef<number | null>(null);
@@ -153,18 +170,16 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     []
   );
 
-  // Build the custom "You are here" marker HTML
-  const createBlueMarkerIcon = () => {
+  const createLocationMarkerIcon = () => {
+    const markerLabel = mode === 'citizen' ? 'You are here' : 'Reported location';
     return L.divIcon({
       className: 'custom-you-are-here-marker',
       html: `
         <div class="relative flex h-16 w-32 flex-col items-center justify-end select-none cursor-pointer">
-          <!-- "You are here" floating blue badge -->
           <div class="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-sky-600 text-white text-[10px] sm:text-[11px] font-extrabold shadow-md border border-white whitespace-nowrap mb-1">
             <span class="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-            <span>You are here</span>
+            <span>${markerLabel}</span>
           </div>
-          <!-- Pulsing Blue Beacon Dot -->
           <div class="relative flex items-center justify-center w-7 h-7">
             <span class="absolute w-7 h-7 rounded-full bg-sky-500/30 animate-ping"></span>
             <span class="absolute w-5 h-5 rounded-full bg-sky-400/40"></span>
@@ -198,37 +213,37 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       lastMarkerPositionRef.current = { lat, lng };
 
       const locationDetails = locationDetailsRef.current;
+      const markerLabel = mode === 'citizen' ? 'You are here' : 'Reported location';
+      const locationLabel = mode === 'citizen' ? 'Live GPS' : 'Location';
       const popupContent = `
         <div class="p-1 font-sans text-xs min-w-[210px]">
           <div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-1.5">
             <div class="font-extrabold text-sky-700 flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
-              You are here
+                ${markerLabel}
             </div>
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Live GPS
+                ${locationLabel}
             </span>
           </div>
           <div class="space-y-1">
             <div class="font-bold text-slate-800 text-[11px]">
-              ${locationDetails.ward || 'GPS Verified Sector'}
+                ${escapePopupText(locationDetails.ward || 'Location reported')}
             </div>
             <div class="text-[10px] text-slate-500 leading-tight">
-              ${locationDetails.address || `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`}
+                ${escapePopupText(locationDetails.address || `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`)}
             </div>
             <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1.5 border-t border-slate-100">
-              <span>Accuracy: <strong class="text-slate-800 font-mono">±${Math.round(accuracyMeters)}m</strong></span>
-              <span class="text-sky-600 font-semibold">Active Sensor</span>
+                ${mode === 'citizen' ? `<span>Accuracy: <strong class="text-slate-800 font-mono">±${Math.round(accuracyMeters)}m</strong></span><span class="text-sky-600 font-semibold">Active Sensor</span>` : '<span>Complaint location</span>'}
             </div>
           </div>
         </div>
       `;
 
-      // Update or create blue "You are here" marker
       if (!userMarkerRef.current || !map.hasLayer(userMarkerRef.current)) {
         userMarkerRef.current?.remove();
         const marker = L.marker([lat, lng], {
-          icon: createBlueMarkerIcon(),
+            icon: createLocationMarkerIcon(),
           zIndexOffset: 1000,
         });
         userMarkerRef.current = marker.addTo(map);
@@ -236,36 +251,39 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         userMarkerRef.current.bindPopup(popupContent);
       } else {
         userMarkerRef.current.setLatLng([lat, lng]);
+        userMarkerRef.current.setPopupContent(popupContent);
       }
 
-      // Update or create accuracy circle
-      const radius = Math.max(accuracyMeters, 8);
-      if (!accuracyCircleRef.current || !map.hasLayer(accuracyCircleRef.current)) {
-        accuracyCircleRef.current?.remove();
-        accuracyCircleRef.current = L.circle([lat, lng], {
-          radius,
-          color: '#0284c7',
-          fillColor: '#38bdf8',
-          fillOpacity: 0.15,
-          weight: 1.5,
-        }).addTo(map);
+      if (mode === 'citizen') {
+        const radius = Math.max(accuracyMeters, 8);
+        if (!accuracyCircleRef.current || !map.hasLayer(accuracyCircleRef.current)) {
+          accuracyCircleRef.current?.remove();
+          accuracyCircleRef.current = L.circle([lat, lng], {
+            radius,
+            color: '#0284c7',
+            fillColor: '#38bdf8',
+            fillOpacity: 0.15,
+            weight: 1.5,
+          }).addTo(map);
+        } else {
+          accuracyCircleRef.current.setLatLng([lat, lng]).setRadius(radius);
+        }
       }
 
       if (shouldCenter) {
         map.flyTo([lat, lng], 16, { duration: 1.0 });
       }
     },
-    []
+    [mode]
   );
 
   // Initialize Leaflet Map
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    // Center map on real coordinates if already known; else neutral start
-    const startLat = activeLat ?? 20.0;
-    const startLng = activeLng ?? 0.0;
-    const startZoom = activeLat && activeLng ? 16 : 3;
+    const startLat = activeLat ?? (mode === 'admin' ? 26.12 : 20.0);
+    const startLng = activeLng ?? (mode === 'admin' ? 85.38 : 0.0);
+    const startZoom = activeLat !== undefined && activeLng !== undefined ? 16 : mode === 'admin' ? 11 : 3;
 
     const map = L.map(mapContainerRef.current, {
       center: [startLat, startLng],
@@ -309,6 +327,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       mapInstanceRef.current = null;
       userMarkerRef.current = null;
       accuracyCircleRef.current = null;
+      complaintLayerRef.current = null;
       lastMarkerPositionRef.current = null;
     };
   }, []);
@@ -332,9 +351,73 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     tileLayerRef.current = newTile;
   }, [activeLayerKey]);
 
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mode !== 'admin') return;
+
+    let clusterLayer = complaintLayerRef.current;
+    if (!clusterLayer) {
+      clusterLayer = L.markerClusterGroup({
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true,
+        maxClusterRadius: 48,
+        iconCreateFunction: (cluster) => {
+          const count = cluster.getChildCount();
+          const size = count >= 100 ? 48 : count >= 10 ? 44 : 38;
+          return L.divIcon({
+            className: 'complaint-marker-cluster',
+            html: `<span style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border:3px solid #fff;border-radius:9999px;background:#0e7490;color:#fff;font:700 13px 'Plus Jakarta Sans',sans-serif;box-shadow:0 2px 8px #0f172a55">${count}</span>`,
+            iconSize: [size, size],
+          });
+        },
+      });
+      complaintLayerRef.current = clusterLayer;
+    }
+
+    if (!map.hasLayer(clusterLayer)) clusterLayer.addTo(map);
+    clusterLayer.clearLayers();
+
+    const locatedComplaints = complaints.filter((complaint) => {
+      const { latitude, longitude } = complaint.location;
+      return typeof latitude === 'number' && Number.isFinite(latitude) && Math.abs(latitude) <= 90
+        && typeof longitude === 'number' && Number.isFinite(longitude) && Math.abs(longitude) <= 180;
+    });
+
+    const markers = locatedComplaints.map((complaint) => {
+      const { latitude, longitude, ward, city, address } = complaint.location;
+      const priorityColor = complaint.priority === 'critical' ? '#be123c' : complaint.priority === 'high' ? '#d97706' : '#0284c7';
+      const marker = L.marker([latitude!, longitude!], {
+        icon: L.divIcon({
+          className: 'complaint-location-marker',
+          html: `<span style="display:block;width:18px;height:18px;border:3px solid #fff;border-radius:9999px;background:${priorityColor};box-shadow:0 1px 6px #0f172a88"></span>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+      });
+      const areaName = address || city || 'Area not specified';
+      marker.bindPopup(`
+        <div style="min-width:190px;font:12px 'Plus Jakarta Sans',sans-serif;color:#0f172a">
+          <div style="font-weight:700;font-size:13px;margin-bottom:5px">${escapePopupText(complaint.issueTitle)}</div>
+          <div style="color:#475569;margin-bottom:3px">${escapePopupText(complaint.id)} · ${escapePopupText(complaint.issueType.replaceAll('_', ' '))}</div>
+          <div style="font-weight:600;margin-bottom:3px">${escapePopupText(ward || 'Ward not recorded')}</div>
+          <div style="color:#475569;margin-bottom:6px">${escapePopupText(areaName)}</div>
+          <div style="padding-top:5px;border-top:1px solid #e2e8f0;color:#475569">${escapePopupText(complaint.status.replaceAll('_', ' '))} · ${escapePopupText(complaint.priority)} priority</div>
+        </div>
+      `);
+      return marker;
+    });
+
+    clusterLayer.addLayers(markers);
+    if (markers.length > 0) {
+      map.fitBounds(clusterLayer.getBounds().pad(0.15), { maxZoom: 14, animate: false });
+    } else {
+      map.setView([26.12, 85.38], 11, { animate: false });
+    }
+  }, [complaints, mode]);
+
   // Request real device GPS coordinates immediately on mount and start watching live updates
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (mode !== 'citizen' || typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     setIsLocatingInternal(true);
 
@@ -407,7 +490,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
     };
-  }, [updateMarkerAndCenter, resolveLocationDetails]);
+  }, [mode, updateMarkerAndCenter, resolveLocationDetails]);
 
   // Sync if detectedLocation prop provides or updates coordinates
   useEffect(() => {
@@ -481,6 +564,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const currentWardDisplay = derivedWard || detectedLocation?.ward;
   const currentCityDisplay = derivedCity || detectedLocation?.city;
   const currentAddressDisplay = derivedAddress || detectedLocation?.address;
+  const geolocatedComplaintCount = complaints.filter(({ location }) =>
+    typeof location.latitude === 'number' && Number.isFinite(location.latitude)
+    && typeof location.longitude === 'number' && Number.isFinite(location.longitude)
+  ).length;
 
   return (
     <div
@@ -523,16 +610,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           </button>
         </div>
 
-        {/* Recenter / GPS Fix Button */}
-        <button
-          type="button"
-          onClick={handleRecenter}
-          aria-label="Recenter on current GPS location"
-          title={activeLat ? 'Recenter on My Coordinates' : 'Detect GPS Location'}
-          className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-sm transition-all cursor-pointer focus-visible:outline-none text-slate-700 hover:text-sky-600 hover:bg-sky-50"
-        >
-          <Compass className={`w-4 h-4 ${isLocating ? 'animate-spin text-sky-600' : ''}`} />
-        </button>
+        {mode === 'citizen' && (
+          <button
+            type="button"
+            onClick={handleRecenter}
+            aria-label="Recenter on current GPS location"
+            title={activeLat ? 'Recenter on My Coordinates' : 'Detect GPS Location'}
+            className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-sm transition-all cursor-pointer focus-visible:outline-none text-slate-700 hover:text-sky-600 hover:bg-sky-50"
+          >
+            <Compass className={`w-4 h-4 ${isLocating ? 'animate-spin text-sky-600' : ''}`} />
+          </button>
+        )}
 
         {/* Layer Switcher Button */}
         <button
@@ -553,8 +641,20 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         style={{ minHeight: '100%' }}
       />
 
-      {/* Blue "You are here" Location Badge (Bottom Left) */}
-      {activeLat && activeLng && (
+      {mode === 'admin' && (
+        <div className="absolute bottom-3 left-3 z-40 bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-200/90 shadow-sm text-[11px] text-slate-700">
+          <span className="font-bold text-slate-900">{geolocatedComplaintCount}</span> complaints mapped
+          {complaints.length > geolocatedComplaintCount && <span className="text-slate-500"> · {complaints.length - geolocatedComplaintCount} without coordinates</span>}
+        </div>
+      )}
+
+      {mode === 'admin' && geolocatedComplaintCount === 0 && (
+        <div className="absolute inset-x-16 bottom-16 z-30 mx-auto w-fit max-w-[80%] rounded-lg bg-white/90 px-3 py-2 text-center text-xs text-slate-500 shadow-sm">
+          {emptyMessage || 'No complaint locations to display.'}
+        </div>
+      )}
+
+      {mode === 'citizen' && activeLat !== undefined && activeLng !== undefined && (
         <div className="absolute bottom-3 left-3 z-40 bg-white/95 backdrop-blur-md p-3 rounded-xl border border-slate-200/90 shadow-sm max-w-[280px] sm:max-w-xs text-left pointer-events-auto">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
             <span className="w-2.5 h-2.5 rounded-full bg-sky-600 animate-pulse shrink-0" />
@@ -585,7 +685,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       )}
 
       {/* GPS Acquiring Indicator Pill */}
-      {!activeLat && isLocating && (
+      {mode === 'citizen' && activeLat === undefined && isLocating && (
         <div className="absolute bottom-3 left-3 z-40 bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-200/90 shadow-sm flex items-center gap-2 pointer-events-auto">
           <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin" />
           <span className="text-[11px] font-semibold text-slate-700">Acquiring browser GPS coordinates...</span>
@@ -593,7 +693,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       )}
 
       {/* GPS Manual Calibration Pill if not yet acquired and not locating */}
-      {!activeLat && !isLocating && onDetectLocation && (
+      {mode === 'citizen' && activeLat === undefined && !isLocating && onDetectLocation && (
         <div className="absolute bottom-3 left-3 z-40 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200/90 shadow-sm flex items-center gap-2 pointer-events-auto">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
           <span className="text-[11px] font-medium text-slate-700">GPS not calibrated</span>

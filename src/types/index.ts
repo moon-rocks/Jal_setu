@@ -57,6 +57,15 @@ export interface ReportItem {
   estimatedResolution?: string;
 }
 
+export interface ReportMapPoint {
+  id: string;
+  issueType: string;
+  issueTitle: string;
+  status: string;
+  priority: string;
+  location: Pick<LocationData, 'ward' | 'city' | 'latitude' | 'longitude' | 'address'>;
+}
+
 export interface TeamMember {
   id: string;
   name: string;

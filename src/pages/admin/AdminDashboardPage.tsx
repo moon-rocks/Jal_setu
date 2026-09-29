@@ -29,13 +29,14 @@ import { analyticsService, DashboardAnalytics } from '../../services/analyticsSe
 import { reportService } from '../../services/reportService';
 import { auditService } from '../../services/auditService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
-import { ReportItem } from '../../types';
+import { ReportItem, ReportMapPoint } from '../../types';
 
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [metrics, setMetrics] = useState<DashboardAnalytics | null>(null);
   const [recentReports, setRecentReports] = useState<ReportItem[]>([]);
+  const [complaintLocations, setComplaintLocations] = useState<ReportMapPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -43,12 +44,14 @@ export const AdminDashboardPage: React.FC = () => {
     setIsLoading(true);
     setErrorMessage('');
     try {
-      const [m, rep] = await Promise.all([
+      const [m, rep, locations] = await Promise.all([
         analyticsService.getDashboardMetrics(),
         reportService.getReports({ limit: 5 }),
+        reportService.getMapLocations(),
       ]);
       setMetrics(m);
       setRecentReports(rep);
+      setComplaintLocations(locations);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to load dashboard data.');
     } finally {
@@ -184,8 +187,9 @@ export const AdminDashboardPage: React.FC = () => {
           <MapContainer
             mode="admin"
             title="GIS Ward Jurisdiction"
-            subtitle="Muzaffarpur Municipal Hydrology Layer"
-            emptyMessage="No reports to display."
+            subtitle={`${complaintLocations.length} complaint locations across Muzaffarpur`}
+            complaints={complaintLocations}
+            emptyMessage="No complaint locations to display."
             heightClass="h-[360px] sm:h-[400px]"
           />
         </div>

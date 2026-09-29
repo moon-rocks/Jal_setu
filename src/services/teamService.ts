@@ -10,7 +10,7 @@ export const teamService = {
     try {
       const { data, error } = await supabase
         .from('field_teams')
-        .select('*, team_members(id, name, role, phone, avatar_url)')
+        .select('*, team_members(id, name, role, phone)')
         .order('name');
 
       if (error) throw error;
@@ -137,7 +137,6 @@ export const teamService = {
       const { error: reportUpdateError } = await supabase.from('reports').update({
         status: 'team_assigned',
         assigned_team_id: targetTeamUuid,
-        assigned_team_name: team.name,
         assigned_at: new Date().toISOString(),
       }).eq('id', targetReportUuid);
       if (reportUpdateError) return false;
