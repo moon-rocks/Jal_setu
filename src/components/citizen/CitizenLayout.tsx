@@ -6,7 +6,8 @@ import { Drawer } from '../ui/Drawer';
 import { JalSetuLogo } from '../ui/JalSetuLogo';
 import { CitizenFooter } from '../common/CitizenFooter';
 import { CitizenBottomNav } from './CitizenBottomNav';
-import { Shield, Droplets, HardHat } from 'lucide-react';
+import { RouteBackButton } from '../common/RouteBackButton';
+import { Shield, Droplets, HardHat, ListChecks } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const CitizenLayout: React.FC = () => {
@@ -57,6 +58,18 @@ export const CitizenLayout: React.FC = () => {
                   </NavLink>
                 );
               })}
+              <NavLink
+                to="/how-it-works"
+                onClick={handleCloseDrawer}
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 ${
+                  location.pathname === '/how-it-works'
+                    ? 'bg-sky-600 text-white font-semibold shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <ListChecks className={`w-5 h-5 shrink-0 ${location.pathname === '/how-it-works' ? 'text-white' : 'text-slate-500'}`} />
+                <span>How JalSetu Works</span>
+              </NavLink>
             </nav>
           </div>
 
@@ -98,6 +111,7 @@ export const CitizenLayout: React.FC = () => {
         {/* Viewport page outlet with CitizenFooter */}
         <main className="flex-1 flex flex-col justify-between">
           <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+            <RouteBackButton fallbackPath="/home" homePaths={['/', '/home']} />
             <Outlet />
           </div>
           <CitizenFooter />

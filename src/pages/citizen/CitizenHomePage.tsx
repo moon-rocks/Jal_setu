@@ -17,6 +17,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useLocationContext } from '../../context/LocationContext';
 import { noticeService } from '../../services/noticeService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
+import { JalSetuProcessSection } from '../../components/common/JalSetuProcessSection';
 
 // Swiper.js for smooth background carousel
 import { Swiper, SwiperSlide } from 'swiper/react';
@@ -455,6 +456,10 @@ export const CitizenHomePage: React.FC = () => {
             <span>Notice Board Full Archive →</span>
           </NavLink>
         </div>
+      </div>
+
+      <div className="hidden md:block">
+        <JalSetuProcessSection />
       </div>
 
       {/* Motivational Water Conservation Banner (1x2 Layout) */}

@@ -6,7 +6,7 @@ import { StatusBadge, PriorityBadge } from '../../components/ui/Badge';
 import { ReportTimeline } from '../../components/common/ReportTimeline';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { MapContainer } from '../../components/common/MapContainer';
-import { ArrowLeft, MapPin, Clock, ShieldCheck, UserCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { MapPin, Clock, ShieldCheck, UserCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { reportService } from '../../services/reportService';
 import { ReportItem, ReportStatus } from '../../types';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
@@ -83,15 +83,7 @@ export const CitizenReportDetailPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-6 select-none">
       {/* Back Header */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => navigate('/my-reports')}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to My Reports</span>
-        </button>
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold font-mono text-slate-400">
             Reference: {reportId}

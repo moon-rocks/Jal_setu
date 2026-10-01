@@ -5,6 +5,7 @@ import { AdminHeader } from './AdminHeader';
 import { Drawer } from '../ui/Drawer';
 import { JalSetuLogo } from '../ui/JalSetuLogo';
 import { ArrowLeft, Droplet } from 'lucide-react';
+import { RouteBackButton } from '../common/RouteBackButton';
 
 export const AdminLayout: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -88,6 +89,7 @@ export const AdminLayout: React.FC = () => {
         {/* Viewport page outlet */}
         <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
           <div className="max-w-7xl mx-auto">
+            <RouteBackButton fallbackPath="/admin" homePaths={['/admin', '/admin/']} />
             <Outlet />
           </div>
         </main>

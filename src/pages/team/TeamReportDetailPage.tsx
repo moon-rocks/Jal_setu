@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, NavLink } from 'react-router-dom';
 import {
-  ArrowLeft,
   MapPin,
   Clock,
   Calendar,
@@ -160,28 +159,18 @@ export const TeamReportDetailPage: React.FC = () => {
     <div className="space-y-6 select-none font-sans text-left">
       {/* Back button & Title header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/team/reports')}
-            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
-            aria-label="Back to assigned tasks"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-extrabold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-lg border border-amber-500/20">
-                {report.reportNumber}
-              </span>
-              <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                {report.issueType.replace('_', ' ')}
-              </span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mt-1">
-              {report.title}
-            </h1>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-extrabold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-lg border border-amber-500/20">
+              {report.reportNumber}
+            </span>
+            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+              {report.issueType.replace('_', ' ')}
+            </span>
           </div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mt-1">
+            {report.title}
+          </h1>
         </div>
 
         {/* Directions CTA */}

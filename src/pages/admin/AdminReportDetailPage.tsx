@@ -7,7 +7,6 @@ import { MapContainer } from '../../components/common/MapContainer';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ReportTimeline } from '../../components/common/ReportTimeline';
 import {
-  ArrowLeft,
   MapPin,
   Clock,
   ShieldCheck,
@@ -213,16 +212,7 @@ export const AdminReportDetailPage: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6 select-none font-sans text-left">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <button
-          type="button"
-          onClick={() => navigate('/admin/reports')}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to All Reports</span>
-        </button>
-
+      <div className="flex justify-end">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold font-mono text-slate-400">
             Case: {reportId}

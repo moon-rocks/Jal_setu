@@ -69,33 +69,33 @@ export const CitizenFooter: React.FC<CitizenFooterProps> = ({ showSubscription }
       <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${isHomePage ? 'pt-5 sm:pt-6 pb-6 sm:pb-8' : 'pt-4 sm:pt-5 pb-5 sm:pb-6'}`}>
         {/* Bihar Water Conservation Newsletter Subscription Banner - Only rendered on Homepage (/) */}
         {isHomePage && (
-          <div className="relative rounded-3xl bg-gradient-to-r from-sky-950 via-blue-900 to-indigo-950 text-white p-6 sm:p-8 mb-6 sm:mb-8 shadow-xl border border-sky-600/30 overflow-hidden">
+          <div className="relative rounded-2xl bg-gradient-to-r from-sky-950 via-blue-900 to-indigo-950 text-white p-4 max-sm:p-3 sm:rounded-3xl sm:p-8 mb-5 sm:mb-8 shadow-xl border border-sky-600/30 overflow-hidden">
             {/* Subtle background glow */}
             <div className="absolute -right-16 -top-16 w-72 h-72 rounded-full bg-sky-400/20 blur-3xl pointer-events-none" />
             <div className="absolute left-1/4 -bottom-16 w-60 h-60 rounded-full bg-blue-500/20 blur-2xl pointer-events-none" />
 
-            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-4 max-sm:gap-3 sm:gap-6 items-center">
               {/* Left Content Column */}
-              <div className="lg:col-span-6 space-y-3">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-400/15 border border-sky-400/30 text-sky-200 text-xs font-semibold backdrop-blur-xs">
+              <div className="lg:col-span-6 space-y-2 max-sm:space-y-1.5 sm:space-y-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-400/15 border border-sky-400/30 text-sky-200 text-xs font-semibold backdrop-blur-xs max-sm:px-2 max-sm:py-0.5 max-sm:text-[10px]">
                   <Sprout className="w-3.5 h-3.5 text-emerald-400" />
                   <span>{t('footer.bulletinTag')}</span>
                 </div>
 
-                <h3 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight text-white leading-tight">
+                <h3 className="text-lg max-sm:text-base sm:text-2xl lg:text-3xl font-extrabold tracking-tight text-white leading-tight">
                   {t('footer.bulletinTitle')}
                 </h3>
 
-                <p className="text-xs sm:text-sm text-sky-100/90 leading-relaxed max-w-xl">
+                <p className="text-xs sm:text-sm text-sky-100/90 leading-relaxed max-w-xl max-sm:line-clamp-2">
                   {t('footer.bulletinDesc')}
                 </p>
 
                 {/* Topic Badges */}
-                <div className="flex flex-wrap gap-2 pt-1 text-xs">
-                  {['💧 Rainwater Catchment', '🌿 River Restoration', '⚡ Real-Time Ward Alerts', '🎯 Jal Sanrakshan Guides'].map((topic) => (
+                <div className="flex flex-wrap gap-1.5 pt-1 text-xs max-sm:gap-1 max-sm:pt-0.5 sm:gap-2">
+                  {['💧 Rainwater Catchment', '🌿 River Restoration', '⚡ Real-Time Ward Alerts', '🎯 Jal Sanrakshan Guides'].map((topic, index) => (
                     <span
                       key={topic}
-                      className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-sky-100 text-[11px] font-medium"
+                      className={`inline-flex items-center px-2 py-1 rounded-lg bg-white/10 border border-white/15 text-sky-100 text-[10px] font-medium sm:px-2.5 sm:text-[11px] ${index > 1 ? 'max-sm:hidden' : ''}`}
                     >
                       {topic}
                     </span>
@@ -104,9 +104,9 @@ export const CitizenFooter: React.FC<CitizenFooterProps> = ({ showSubscription }
               </div>
 
               {/* Right Form Column */}
-              <div className="lg:col-span-6 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 sm:p-6 shadow-inner">
-                  <form onSubmit={handleBulletinSubscribe} noValidate className="space-y-3.5">
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+              <div className="lg:col-span-6 w-full bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3.5 max-sm:p-3 sm:rounded-2xl sm:p-6 shadow-inner">
+                  <form onSubmit={handleBulletinSubscribe} noValidate className="w-full space-y-2.5 max-sm:space-y-2 sm:space-y-3.5">
+                    <div className="grid w-full grid-cols-1 sm:grid-cols-12 gap-2 max-sm:gap-1.5 sm:gap-2.5">
                       {/* District Selector */}
                       <div className="sm:col-span-5 relative">
                         <select
@@ -153,15 +153,15 @@ export const CitizenFooter: React.FC<CitizenFooterProps> = ({ showSubscription }
                       </div>
                     )}
 
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
-                      <label className="flex items-center gap-2 text-[11px] text-sky-100">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 max-sm:gap-1.5 sm:gap-3 pt-1">
+                      <label className="flex items-start gap-2 text-[11px] text-sky-100 max-sm:text-[10px] max-sm:leading-relaxed sm:items-center">
                         <input type="checkbox" disabled className="rounded border-white/30 text-sky-500 bg-slate-900/50" />
                         <span>Receive weekly water conservation insights & alerts</span>
                       </label>
 
                       <button
                         type="submit"
-                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-500 hover:from-sky-300 hover:to-blue-400 active:scale-95 text-slate-950 font-bold text-xs tracking-tight transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                        className="w-full sm:w-auto px-5 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-500 hover:from-sky-300 hover:to-blue-400 active:scale-95 text-slate-950 font-bold text-xs tracking-tight transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 shrink-0"
                       >
                         <span>{t('footer.subscribeNow')}</span>
                       </button>
@@ -177,8 +177,10 @@ export const CitizenFooter: React.FC<CitizenFooterProps> = ({ showSubscription }
           </div>
         )}
 
-        {/* Bihar State 24x7 Water Emergency Helpline Ribbon */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-50 via-blue-50/60 to-emerald-50/60 border border-sky-200/80 shadow-2xs">
+        {isHomePage && (
+          <>
+            {/* Bihar State 24x7 Water Emergency Helpline Ribbon */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-sky-50 via-blue-50/60 to-emerald-50/60 border border-sky-200/80 shadow-2xs">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
@@ -217,7 +219,9 @@ export const CitizenFooter: React.FC<CitizenFooterProps> = ({ showSubscription }
               </div>
             </div>
           </div>
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Bottom Dark Copyright & Legal Bar */}

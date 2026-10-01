@@ -6,6 +6,7 @@ import { LocationProvider } from './context/LocationContext';
 import { AdminProtectedRoute } from './components/common/AdminProtectedRoute';
 import { TeamProtectedRoute } from './components/common/TeamProtectedRoute';
 import { CitizenReportProtectedRoute } from './components/common/CitizenReportProtectedRoute';
+import { CustomCursor } from './components/common/CustomCursor';
 
 // Layouts
 import { CitizenLayout } from './components/citizen/CitizenLayout';
@@ -30,6 +31,7 @@ import { CitizenServicesPage } from './pages/citizen/CitizenServicesPage';
 import { CitizenNoticesPage } from './pages/citizen/CitizenNoticesPage';
 import { CitizenAwarenessPage } from './pages/citizen/CitizenAwarenessPage';
 import { CitizenHelpPage } from './pages/citizen/CitizenHelpPage';
+import { CitizenHowItWorksPage } from './pages/citizen/CitizenHowItWorksPage';
 
 // Team Member Pages
 import { TeamLoginPage } from './pages/team/TeamLoginPage';
@@ -63,6 +65,7 @@ export default function App() {
       <AuthProvider>
         <LocationProvider>
           <HashRouter>
+            <CustomCursor />
             <Routes>
               {/* ------------------------------------------------------------- */}
               {/* 1. CITIZEN HYBRID AUTH FLOW (Email OTP -> Set Password -> Email+Password Login) */}
@@ -78,6 +81,7 @@ export default function App() {
               {/* Citizen App with Persistent Layout */}
               <Route element={<CitizenLayout />}>
                 <Route path="/home" element={<CitizenHomePage />} />
+                <Route path="/how-it-works" element={<CitizenHowItWorksPage />} />
                 <Route element={<CitizenReportProtectedRoute />}>
                   <Route path="/report" element={<CitizenReportPage />} />
                 </Route>
