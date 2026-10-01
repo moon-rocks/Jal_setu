@@ -6,7 +6,6 @@ import { LocationProvider } from './context/LocationContext';
 import { AdminProtectedRoute } from './components/common/AdminProtectedRoute';
 import { TeamProtectedRoute } from './components/common/TeamProtectedRoute';
 import { CitizenReportProtectedRoute } from './components/common/CitizenReportProtectedRoute';
-import { CustomCursor } from './components/common/CustomCursor';
 
 // Layouts
 import { CitizenLayout } from './components/citizen/CitizenLayout';
@@ -65,7 +64,6 @@ export default function App() {
       <AuthProvider>
         <LocationProvider>
           <HashRouter>
-            <CustomCursor />
             <Routes>
               {/* ------------------------------------------------------------- */}
               {/* 1. CITIZEN HYBRID AUTH FLOW (Email OTP -> Set Password -> Email+Password Login) */}
