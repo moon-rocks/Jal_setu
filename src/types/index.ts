@@ -95,6 +95,9 @@ export interface CivicNotice {
   severity: 'info' | 'warning' | 'critical' | 'success';
   description: string;
   ward?: string;
+  wardId?: string;
+  isActive?: boolean;
+  createdAt?: string;
 }
 
 export interface UserProfile {
@@ -108,4 +111,3 @@ export interface UserProfile {
 }
 
 export * from './teamMember';
-

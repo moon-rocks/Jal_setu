@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState, ErrorState } from '../../components/ui/LoadingState';
 import { StatusBadge, PriorityBadge } from '../../components/ui/Badge';
+import { ReportAdminControls } from '../../components/admin/ReportAdminControls';
 import { ReportItem } from '../../types';
 import {
   FileCheck2,
@@ -12,10 +13,7 @@ import {
   Filter,
   Eye,
   CheckCircle2,
-  Clock,
   ChevronRight,
-  ShieldCheck,
-  RefreshCw,
   X,
 } from 'lucide-react';
 import { reportService } from '../../services/reportService';
@@ -70,6 +68,14 @@ export const AdminReportsPage: React.FC = () => {
     return [report.id, report.issueTitle, report.location.ward, report.location.city, report.description]
       .some((value) => value?.toLowerCase().includes(query));
   });
+
+  const handleReportDeleted = (reportId: string) => {
+    setReportsList((currentReports) => {
+      const remaining = currentReports.filter((report) => report.id !== reportId);
+      setViewState(remaining.length > 0 ? 'normal' : 'empty');
+      return remaining;
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -226,19 +232,23 @@ export const AdminReportsPage: React.FC = () => {
                         <span className="font-bold text-slate-800">{report.aiConfidence}%</span>
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/admin/reports/${report.id}`);
-                        }}
-                        leftIcon={<Eye className="w-3.5 h-3.5" />}
-                        className="text-xs"
-                      >
-                        Inspect
-                      </Button>
+                    <td className="py-3.5 px-4" onClick={(event) => event.stopPropagation()}>
+                      <div className="flex min-w-max items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/admin/reports/${report.id}`)}
+                          leftIcon={<Eye className="w-3.5 h-3.5" />}
+                          className="text-xs"
+                        >
+                          Inspect
+                        </Button>
+                        <ReportAdminControls
+                          report={report}
+                          onUpdated={() => void fetchReports()}
+                          onDeleted={() => handleReportDeleted(report.id)}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}

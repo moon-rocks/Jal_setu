@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, NavLink } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { ReportAdminControls } from '../../components/admin/ReportAdminControls';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { KpiCard } from '../../components/common/KpiCard';
 import { MapContainer } from '../../components/common/MapContainer';
@@ -87,19 +88,23 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const handleRejectReport = async (reportId: string) => {
-    await reportService.updateReportStatus(reportId, 'rejected');
-    await auditService.logAction('REJECT_REPORT', 'REPORT', reportId);
-    fetchDashboardData();
+    if (!window.confirm('Permanently delete this report, its GPS location, photos, and related data? This cannot be undone.')) return;
+    try {
+      await reportService.rejectAndDeleteReport(reportId);
+      await fetchDashboardData();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to permanently delete this report.');
+    }
   };
 
   return (
-    <div className="space-y-6 sm:space-y-8 select-none">
+    <div className="w-full min-w-0 space-y-6 select-none sm:space-y-8">
       {errorMessage && <ErrorState message={errorMessage} onRetry={() => void fetchDashboardData()} />}
       {/* Top Banner & Title Area matching Reference 1 */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="break-words text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
               Welcome Back, Admin 👋
             </h1>
           </div>
@@ -117,7 +122,7 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* 4 KPI Cards matching Reference 1 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         <KpiCard
           title="Total Reports"
           value={metrics ? String(metrics.totalReports) : undefined}
@@ -160,23 +165,23 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* Main Operations Grid: Live Map + Pending Reports + AI Verification */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-12">
         {/* Left: Live Reports Map (Muzaffarpur) (6 cols) */}
-        <div className="lg:col-span-6 space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="min-w-0 space-y-3 2xl:col-span-6">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
               <span>Live Reports Map</span>
               <span className="text-slate-400 font-normal text-xs">(Muzaffarpur)</span>
             </h3>
 
-            <div className="flex items-center gap-2">
-              <select className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 cursor-pointer focus:outline-none">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <select className="min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 focus:outline-none">
                 <option>All Issues</option>
                 <option>Pipeline Leakage</option>
                 <option>Dirty Water</option>
                 <option>Low Pressure</option>
               </select>
-              <select className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 cursor-pointer focus:outline-none">
+              <select className="min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 focus:outline-none">
                 <option>This Week</option>
                 <option>Today</option>
                 <option>This Month</option>
@@ -190,12 +195,13 @@ export const AdminDashboardPage: React.FC = () => {
             subtitle={`${complaintLocations.length} complaint locations across Muzaffarpur`}
             complaints={complaintLocations}
             emptyMessage="No complaint locations to display."
-            heightClass="h-[360px] sm:h-[400px]"
+            heightClass="h-[280px] min-[480px]:h-[340px] sm:h-[400px]"
+            className="min-w-0 w-full"
           />
         </div>
 
         {/* Center: Pending Reports Queue (3 cols) */}
-        <div className="lg:col-span-3 space-y-3">
+        <div className="min-w-0 space-y-3 2xl:col-span-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
@@ -241,19 +247,27 @@ export const AdminDashboardPage: React.FC = () => {
                     </h4>
                     <PriorityBadge priority={report.priority} />
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>{report.location.ward} · {report.submittedAt}</span>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/admin/reports/${report.id}`);
-                      }}
-                      className="text-[10px] py-1 px-2.5 h-auto rounded-lg"
-                    >
-                      View
-                    </Button>
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <span className="min-w-0 break-words">{report.location.ward} · {report.submittedAt}</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => navigate(`/admin/reports/${report.id}`)}
+                        className="text-[10px] py-1 px-2.5 h-auto rounded-lg"
+                      >
+                        View
+                      </Button>
+                      <ReportAdminControls
+                        report={report}
+                        className="flex min-w-0 flex-wrap"
+                        onUpdated={() => void fetchDashboardData()}
+                        onDeleted={() => {
+                          if (selectedPendingReportId === report.id) setSelectedPendingReportId(null);
+                          void fetchDashboardData();
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -262,7 +276,7 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {/* Right: AI Verification Panel matching Reference 1 (3 cols) */}
-        <div className="lg:col-span-3 space-y-3">
+        <div className="min-w-0 space-y-3 2xl:col-span-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
               <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
@@ -350,7 +364,7 @@ export const AdminDashboardPage: React.FC = () => {
                   onClick={() => void handleRejectReport(activeReportForAi.id)}
                   className="text-xs px-1"
                 >
-                  Reject
+                  Reject & Delete
                 </Button>
                 <Button
                   variant="outline"
@@ -367,9 +381,9 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* Analytics & Quick Actions Grid matching Reference 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid min-w-0 grid-cols-1 gap-6 sm:grid-cols-2 2xl:grid-cols-12">
         {/* Reports Over Time Chart (4 cols) */}
-        <div className="lg:col-span-4 space-y-2">
+        <div className="min-w-0 space-y-2 2xl:col-span-4">
           <div className="flex items-center justify-between">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900">
               Reports Over Time
@@ -381,23 +395,25 @@ export const AdminDashboardPage: React.FC = () => {
             {isLoading ? <LoadingState message="Loading report activity..." /> : errorMessage ? null : !metrics?.totalReports ? (
               <p className="text-xs text-slate-400 font-medium">Analytics will appear once reports are available.</p>
             ) : (
-              <div className="flex items-end justify-between h-32 gap-1.5 px-2 pt-4">
-                {dailyReports.map((item) => (
-                  <div key={item.label} className="flex-1 flex flex-col items-center gap-1">
-                    <div
-                      className="w-full bg-sky-500 rounded-t-md hover:bg-sky-600 transition-colors"
-                      style={{ height: `${(item.count / maxDailyReports) * 100}%` }}
-                    />
-                    <span className="text-[9px] text-slate-400 font-mono">{item.label}</span>
-                  </div>
-                ))}
+              <div className="w-full min-w-0 overflow-x-auto">
+                <div className="flex h-32 min-w-[620px] items-end justify-between gap-1.5 px-2 pt-4">
+                  {dailyReports.map((item) => (
+                    <div key={item.label} className="flex min-w-[14px] flex-1 flex-col items-center gap-1">
+                      <div
+                        className="w-full rounded-t-md bg-sky-500 transition-colors hover:bg-sky-600"
+                        style={{ height: `${(item.count / maxDailyReports) * 100}%` }}
+                      />
+                      <span className="text-[9px] text-slate-400 font-mono">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </Card>
         </div>
 
         {/* Issues by Type (3 cols) */}
-        <div className="lg:col-span-3 space-y-2">
+        <div className="min-w-0 space-y-2 2xl:col-span-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900">
               Issues by Type
@@ -421,7 +437,7 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {/* Resolution Rate (2 cols) */}
-        <div className="lg:col-span-2 space-y-2">
+        <div className="min-w-0 space-y-2 2xl:col-span-2">
           <div className="flex items-center justify-between">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900">
               Resolution Rate
@@ -442,12 +458,12 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {/* Quick Actions matching Reference 1 (3 cols) */}
-        <div className="lg:col-span-3 space-y-2">
+        <div className="min-w-0 space-y-2 2xl:col-span-3">
           <h4 className="text-xs sm:text-sm font-bold text-slate-900">
             Quick Actions
           </h4>
 
-          <div className="grid grid-cols-2 gap-2 h-[200px]">
+          <div className="grid h-[200px] min-w-0 grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => navigate('/admin/reports')}
@@ -468,7 +484,7 @@ export const AdminDashboardPage: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => alert('Publish Municipal Notice modal is active for Stage 0.')}
+              onClick={() => navigate('/admin/notices')}
               className="p-3 rounded-2xl bg-white border border-slate-200 hover:border-sky-300 hover:shadow-xs transition-all flex flex-col items-center justify-center text-center cursor-pointer"
             >
               <Megaphone className="w-5 h-5 text-amber-600 mb-1.5" />

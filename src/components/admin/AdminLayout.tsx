@@ -17,7 +17,7 @@ export const AdminLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-full bg-slate-100/70 overflow-hidden font-sans">
+    <div className="flex h-dvh min-h-screen w-full min-w-0 bg-slate-100/70 overflow-hidden font-sans">
       {/* Desktop Left Sidebar */}
       <AdminSidebar
         isCollapsed={isSidebarCollapsed}
@@ -87,8 +87,8 @@ export const AdminLayout: React.FC = () => {
         <AdminHeader onOpenDrawer={() => setIsMobileDrawerOpen(true)} />
 
         {/* Viewport page outlet */}
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto px-3 sm:px-5 xl:px-8 py-4 sm:py-6">
+          <div className="w-full max-w-7xl min-w-0 mx-auto">
             <RouteBackButton fallbackPath="/admin" homePaths={['/admin', '/admin/']} />
             <Outlet />
           </div>

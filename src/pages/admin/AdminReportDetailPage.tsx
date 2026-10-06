@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { ReportAdminControls } from '../../components/admin/ReportAdminControls';
 import { StatusBadge, PriorityBadge } from '../../components/ui/Badge';
 import { MapContainer } from '../../components/common/MapContainer';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -187,6 +188,22 @@ export const AdminReportDetailPage: React.FC = () => {
   };
 
   const handleStatusChange = async (newStatus: ReportStatus) => {
+    if (newStatus === 'rejected') {
+      if (!window.confirm('Permanently delete this report, its GPS location, photos, and related data? This cannot be undone.')) {
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        await reportService.rejectAndDeleteReport(reportId);
+        navigate('/admin/reports', { replace: true });
+      } catch (error) {
+        setIsLoading(false);
+        setFeedbackNotice(error instanceof Error ? error.message : 'Unable to permanently delete this report.');
+      }
+      return;
+    }
+
     setCurrentStatus(newStatus);
     await reportService.updateReportStatus(reportId, newStatus, {
       reason: `Administrative transition to ${newStatus}`,
@@ -213,7 +230,14 @@ export const AdminReportDetailPage: React.FC = () => {
     <div className="max-w-5xl mx-auto space-y-6 select-none font-sans text-left">
       {/* Top Header */}
       <div className="flex justify-end">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {report && (
+            <ReportAdminControls
+              report={report}
+              onUpdated={() => void fetchReport()}
+              onDeleted={() => navigate('/admin/reports', { replace: true })}
+            />
+          )}
           <span className="text-xs font-bold font-mono text-slate-400">
             Case: {reportId}
           </span>
@@ -530,6 +554,7 @@ export const AdminReportDetailPage: React.FC = () => {
                 <option value="team_assigned">Team Assigned</option>
                 <option value="repair_in_progress">Repair In Progress</option>
                 <option value="resolved">Resolved</option>
+                <option value="rejected">Reject & Permanently Delete</option>
               </select>
             </div>
           </Card>

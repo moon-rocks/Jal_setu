@@ -47,17 +47,17 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
           type="button"
           onClick={onOpenDrawer}
           aria-label="Open admin navigation menu"
-          className="md:hidden p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+          className="lg:hidden p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="md:hidden">
+        <div className="lg:hidden">
           <JalSetuLogo size="sm" adminBadge={true} showTagline={false} />
         </div>
 
         {/* Admin Search Bar */}
-        <div className="hidden md:flex items-center relative w-72 lg:w-96">
+        <div className="hidden lg:flex items-center relative w-72 xl:w-96">
           <AdminSearchBar />
         </div>
       </div>

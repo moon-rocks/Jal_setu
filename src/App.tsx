@@ -57,6 +57,7 @@ import { AdminTeamsPage } from './pages/admin/AdminTeamsPage';
 import { AdminAlertsPage } from './pages/admin/AdminAlertsPage';
 import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
+import { AdminNoticesPage } from './pages/admin/AdminNoticesPage';
 
 export default function App() {
   return (
@@ -133,6 +134,7 @@ export default function App() {
                   <Route path="teams" element={<AdminTeamsPage />} />
                   <Route path="alerts" element={<AdminAlertsPage />} />
                   <Route path="analytics" element={<AdminAnalyticsPage />} />
+                  <Route path="notices" element={<AdminNoticesPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
                 </Route>
               </Route>

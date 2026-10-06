@@ -9,6 +9,7 @@ import {
   HardHat,
   BellRing,
   BarChart3,
+  Megaphone,
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
@@ -28,6 +29,7 @@ export const ADMIN_NAV_ITEMS = [
   { path: '/admin/teams', label: 'Field Units', icon: Users2 },
   { path: '/admin/alerts', label: 'Alerts', icon: BellRing },
   { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
+  { path: '/admin/notices', label: 'Notices', icon: Megaphone },
   { path: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -39,7 +41,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 
   return (
     <aside
-      className={`hidden md:flex flex-col bg-[#0B1527] text-slate-200 border-r border-slate-800 transition-all duration-300 select-none z-20 shrink-0 ${
+      className={`hidden lg:flex flex-col bg-[#0B1527] text-slate-200 border-r border-slate-800 transition-all duration-300 select-none z-20 shrink-0 ${
         isCollapsed ? 'w-[76px]' : 'w-64 lg:w-70'
       }`}
     >

@@ -559,8 +559,10 @@ export const AdminTeamMembersPage: React.FC = () => {
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-700">Temporary Password *</label>
                     <input
-                      type="text"
+                      type="password"
                       required
+                      minLength={6}
+                      autoComplete="new-password"
                       placeholder="Min 6 characters (e.g. JalSetu#2026)"
                       value={newMemberForm.password}
                       onChange={(e) => setNewMemberForm({ ...newMemberForm, password: e.target.value })}

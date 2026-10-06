@@ -1,6 +1,14 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { IssueType, PriorityLevel, ReportItem, ReportMapPoint, ReportStatus } from '../types';
 
+const buildApiUrl = (path: string) => {
+  const configuredBase = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return configuredBase
+    ? `${configuredBase}${normalizedPath}`
+    : `${typeof window !== 'undefined' ? window.location.origin : ''}${normalizedPath}`;
+};
+
 async function getAuthenticatedCitizenUser() {
   if (!isSupabaseConfigured) return null;
 
@@ -250,6 +258,15 @@ export const reportService = {
     reason?: string;
   }): Promise<boolean> {
     if (!isSupabaseConfigured) return false;
+    if (newStatus === 'rejected') {
+      try {
+        await this.rejectAndDeleteReport(reportId);
+        return true;
+      } catch (error) {
+        console.error('Failed to permanently delete rejected report:', error);
+        return false;
+      }
+    }
 
     try {
       const payload: Record<string, any> = {
@@ -303,6 +320,79 @@ export const reportService = {
     } catch (e) {
       console.error('Failed to update report status:', e);
       return false;
+    }
+  },
+
+  async rejectAndDeleteReport(reportId: string): Promise<void> {
+    await this.deleteReportPermanently(reportId, 'admin_rejection');
+  },
+
+  async deleteReportPermanently(reportId: string, reason: 'admin_rejection' | 'admin_delete' = 'admin_delete'): Promise<void> {
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session?.access_token) throw new Error('You must be signed in as an administrator to reject a report.');
+
+    const response = await fetch(buildApiUrl('/api/admin/delete-report'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ reportId, reason }),
+    });
+
+    let result: { success?: boolean; error?: string } = {};
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(`Report deletion failed with HTTP ${response.status}.`);
+    }
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Report deletion failed with HTTP ${response.status}.`);
+    }
+  },
+
+  async updateReportDetails(reportId: string, updates: {
+    issueType: IssueType;
+    title: string;
+    description: string;
+    priority: PriorityLevel;
+    ward: string;
+    city: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  }): Promise<void> {
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session?.access_token) throw new Error('You must be signed in as an administrator to edit a report.');
+
+    const response = await fetch(buildApiUrl(`/api/admin/reports/${encodeURIComponent(reportId)}`), {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    let result: { success?: boolean; error?: string } = {};
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(`Report update failed with HTTP ${response.status}.`);
+    }
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Report update failed with HTTP ${response.status}.`);
     }
   },
 
