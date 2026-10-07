@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -16,6 +17,15 @@ const parseGeminiJson = (text: string) => {
   }
 
   return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+};
+
+const encodeBase64 = (bytes: Uint8Array) => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 };
 
 serve(async (req) => {
@@ -72,17 +82,11 @@ Requirements:
 
     const imageParts: Array<Record<string, unknown>> = [];
     if (photoUrl) {
-      try {
-        const photoResponse = await fetch(photoUrl);
-        const contentType = photoResponse.headers.get('content-type') || 'image/jpeg';
-        if (photoResponse.ok) {
-          const bytes = new Uint8Array(await photoResponse.arrayBuffer());
-          const base64 = btoa(String.fromCharCode(...bytes));
-          imageParts.push({ inline_data: { mime_type: contentType, data: base64 } });
-        }
-      } catch (photoError) {
-        console.warn('Photo fetch failed during AI analysis:', photoError);
-      }
+      const photoResponse = await fetch(photoUrl);
+      if (!photoResponse.ok) throw new Error(`Evidence photo fetch failed (${photoResponse.status}).`);
+      const contentType = photoResponse.headers.get('content-type') || 'image/jpeg';
+      const bytes = new Uint8Array(await photoResponse.arrayBuffer());
+      imageParts.push({ inline_data: { mime_type: contentType, data: encodeBase64(bytes) } });
     }
 
     const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {

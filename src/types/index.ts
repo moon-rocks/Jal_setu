@@ -46,6 +46,7 @@ export interface ReportItem {
   status: ReportStatus;
   priority: PriorityLevel;
   description?: string;
+  completedAt?: string;
   photoUrl?: string;
   aiStatus?: 'verified_by_ai' | 'human_review_required' | 'not_run';
   aiConfidence?: number;

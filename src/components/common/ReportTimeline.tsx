@@ -6,6 +6,7 @@ export interface ReportTimelineProps {
   currentStatus: ReportStatus;
   className?: string;
   timestamps?: Partial<Record<ReportStatus, string>>;
+  completedAt?: string;
 }
 
 const STAGES: {
@@ -67,8 +68,13 @@ export const ReportTimeline: React.FC<ReportTimelineProps> = ({
   currentStatus,
   className = '',
   timestamps = {},
+  completedAt,
 }) => {
   const currentIndex = STATUS_ORDER[currentStatus] ?? 0;
+  const workCompletedPendingVerification = currentStatus === 'repair_in_progress' && Boolean(completedAt);
+  const completionTime = completedAt
+    ? new Date(completedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    : undefined;
 
   return (
     <div className={`py-2 ${className}`}>
@@ -111,7 +117,9 @@ export const ReportTimeline: React.FC<ReportTimelineProps> = ({
                           : 'text-slate-400'
                       }`}
                     >
-                      {stage.label}
+                      {stage.status === 'repair_in_progress' && workCompletedPendingVerification
+                        ? 'Field Work Completed'
+                        : stage.label}
                     </p>
                     {isCurrent && (
                       <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 animate-pulse">
@@ -119,9 +127,13 @@ export const ReportTimeline: React.FC<ReportTimelineProps> = ({
                       </span>
                     )}
                   </div>
-                  {timestamps[stage.status] && (
+                  {(stage.status === 'repair_in_progress' && workCompletedPendingVerification
+                    ? completionTime
+                    : timestamps[stage.status]) && (
                     <span className="text-xs text-slate-400 font-mono">
-                      {timestamps[stage.status]}
+                      {stage.status === 'repair_in_progress' && workCompletedPendingVerification
+                        ? completionTime
+                        : timestamps[stage.status]}
                     </span>
                   )}
                 </div>
@@ -130,7 +142,9 @@ export const ReportTimeline: React.FC<ReportTimelineProps> = ({
                     isPending ? 'text-slate-400' : 'text-slate-500'
                   }`}
                 >
-                  {stage.description}
+                  {stage.status === 'repair_in_progress' && workCompletedPendingVerification
+                    ? 'Repair completed by the field team and awaiting Admin verification'
+                    : stage.description}
                 </p>
               </div>
             </div>

@@ -27,14 +27,17 @@ import {
 } from 'lucide-react';
 import { teamMemberService } from '../../services/teamMemberService';
 import { TeamMemberProfile, CreateTeamMemberDTO } from '../../types/teamMember';
-import { useAuth } from '../../context/AuthContext';
+import { teamService } from '../../services/teamService';
+import { locationService } from '../../services/locationService';
+import { FieldTeam } from '../../types';
+import { useRealtimeSubscription } from '../../hooks/useRealtime';
 
 export const AdminTeamMembersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [members, setMembers] = useState<TeamMemberProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -48,16 +51,19 @@ export const AdminTeamMembersPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [allocationLoading, setAllocationLoading] = useState(false);
+  const [fieldTeams, setFieldTeams] = useState<FieldTeam[]>([]);
+  const [municipalWards, setMunicipalWards] = useState<Awaited<ReturnType<typeof locationService.getWards>>>([]);
   const [newMemberForm, setNewMemberForm] = useState<CreateTeamMemberDTO>({
     fullName: '',
     email: '',
     phone: '',
     designation: 'Field Hydraulics Technician',
     department: 'Water Supply & Distribution',
-    assignedArea: 'Ward 12 - Pokhraira Central',
-    ward: 'Ward 12',
-    teamName: 'Team Alpha (Rapid Repair)',
-    responsibilities: 'Emergency leak sealing, mechanical pipe clamping, pressure testing',
+    assignedArea: '',
+    ward: '',
+    teamName: '',
+    responsibilities: '',
     password: '',
     status: 'active',
   });
@@ -67,22 +73,57 @@ export const AdminTeamMembersPage: React.FC = () => {
 
   const fetchMembers = async () => {
     setIsLoading(true);
-    const list = await teamMemberService.getTeamMembers({
-      search: searchQuery,
-      department: departmentFilter !== 'all' ? departmentFilter : undefined,
-      status: statusFilter !== 'all' ? statusFilter : undefined,
-    });
-    setMembers(list);
-    setIsLoading(false);
+    setPageError(null);
+    try {
+      const list = await teamMemberService.getTeamMembers({
+        search: searchQuery,
+        department: departmentFilter !== 'all' ? departmentFilter : undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+      });
+      setMembers(list);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Unable to load team members.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchMembers();
   }, [departmentFilter, statusFilter, searchQuery]);
 
+  useRealtimeSubscription('team_members', () => {
+    fetchMembers();
+  });
+
+  useEffect(() => {
+    if (!showCreateModal) return;
+    let isMounted = true;
+    setAllocationLoading(true);
+    setCreateError(null);
+    Promise.all([teamService.getTeams(), locationService.getWards()])
+      .then(([teams, wards]) => {
+        if (!isMounted) return;
+        setFieldTeams(teams);
+        setMunicipalWards(wards);
+      })
+      .catch((error) => {
+        if (isMounted) setCreateError(error instanceof Error ? error.message : 'Unable to load field teams and municipal wards.');
+      })
+      .finally(() => {
+        if (isMounted) setAllocationLoading(false);
+      });
+    return () => { isMounted = false; };
+  }, [showCreateModal]);
+
   const handleToggleStatus = async (id: string, currentStatus: 'active' | 'inactive') => {
     const nextStatus = currentStatus === 'active' ? 'inactive' : 'active';
-    await teamMemberService.toggleStatus(id, nextStatus);
+    setPageError(null);
+    const success = await teamMemberService.toggleStatus(id, nextStatus);
+    if (!success) {
+      setPageError(`Unable to ${nextStatus === 'active' ? 'enable' : 'disable'} this team member.`);
+      return;
+    }
     setActionSuccess(`Team member successfully ${nextStatus === 'active' ? 'enabled' : 'disabled'}.`);
     setTimeout(() => setActionSuccess(null), 3000);
     fetchMembers();
@@ -92,7 +133,11 @@ export const AdminTeamMembersPage: React.FC = () => {
     const confirmed = window.confirm(`Reset temporary password for ${email}? A secure temporary password will be provisioned.`);
     if (!confirmed) return;
 
-    await teamMemberService.resetPassword(email, id);
+    const result = await teamMemberService.resetPassword(email, id);
+    if (!result.success) {
+      setPageError(result.error || `Unable to request a password reset for ${email}.`);
+      return;
+    }
     setActionSuccess(`Password reset email requested for ${email}.`);
     setTimeout(() => setActionSuccess(null), 4000);
   };
@@ -110,6 +155,14 @@ export const AdminTeamMembersPage: React.FC = () => {
       setCreateError('Temporary password must be at least 6 characters long.');
       return;
     }
+    if (!fieldTeams.some((team) => team.name === newMemberForm.teamName)) {
+      setCreateError('Select an existing field unit.');
+      return;
+    }
+    if (!municipalWards.some((ward) => ward.wardNumber === newMemberForm.ward)) {
+      setCreateError('Select an existing municipal ward.');
+      return;
+    }
 
     setCreateLoading(true);
     const res = await teamMemberService.createTeamMember(newMemberForm);
@@ -125,10 +178,10 @@ export const AdminTeamMembersPage: React.FC = () => {
         phone: '',
         designation: 'Field Hydraulics Technician',
         department: 'Water Supply & Distribution',
-        assignedArea: 'Ward 12 - Pokhraira Central',
-        ward: 'Ward 12',
-        teamName: 'Team Alpha (Rapid Repair)',
-        responsibilities: 'Emergency leak sealing, mechanical pipe clamping, pressure testing',
+        assignedArea: '',
+        ward: '',
+        teamName: '',
+        responsibilities: '',
         password: '',
         status: 'active',
       });
@@ -176,6 +229,12 @@ export const AdminTeamMembersPage: React.FC = () => {
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span>{actionSuccess}</span>
+        </div>
+      )}
+      {pageError && (
+        <div role="alert" className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+          <span>{pageError}</span>
         </div>
       )}
 
@@ -506,24 +565,35 @@ export const AdminTeamMembersPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-700">Assigned Area / Sector *</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      value={newMemberForm.assignedArea}
-                      onChange={(e) => setNewMemberForm({ ...newMemberForm, assignedArea: e.target.value })}
+                      disabled={allocationLoading || !municipalWards.length}
+                      value={newMemberForm.ward}
+                      onChange={(e) => {
+                        const ward = municipalWards.find((item) => item.wardNumber === e.target.value);
+                        setNewMemberForm({ ...newMemberForm, ward: e.target.value, assignedArea: ward?.name || '' });
+                      }}
                       className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:border-sky-500"
-                    />
+                    >
+                      <option value="">{allocationLoading ? 'Loading municipal wards...' : 'Select a configured ward'}</option>
+                      {municipalWards.map((ward) => (
+                        <option key={ward.id} value={ward.wardNumber}>{ward.name} ({ward.wardNumber})</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-700">Field Unit / Van *</label>
-                    <input
-                      type="text"
+                    <select
                       required
+                      disabled={allocationLoading || !fieldTeams.length}
                       value={newMemberForm.teamName}
                       onChange={(e) => setNewMemberForm({ ...newMemberForm, teamName: e.target.value })}
                       className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:border-sky-500"
-                    />
+                    >
+                      <option value="">{allocationLoading ? 'Loading field units...' : 'Select an existing field unit'}</option>
+                      {fieldTeams.map((team) => <option key={team.id} value={team.name}>{team.name}</option>)}
+                    </select>
                   </div>
 
                   <div className="sm:col-span-2 space-y-1">

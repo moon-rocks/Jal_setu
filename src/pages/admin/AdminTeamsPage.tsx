@@ -65,6 +65,12 @@ export const AdminTeamsPage: React.FC = () => {
   useRealtimeSubscription('field_teams', () => {
     fetchTeams();
   });
+  useRealtimeSubscription('team_members', () => {
+    fetchTeams();
+  });
+  useRealtimeSubscription('reports', () => {
+    fetchTeams();
+  });
 
   const handleCreateTeamSubmit = async () => {
     if (!newTeamName.trim() || newMembersCount < 0) return;
@@ -76,11 +82,11 @@ export const AdminTeamsPage: React.FC = () => {
       membersCount: newMembersCount,
     });
     if (!result.success) {
-      setErrorMessage('Unable to create the field team. Check your connection and permissions.');
+      setErrorMessage(result.error || 'Unable to create the field team. Check your connection and permissions.');
       setIsLoading(false);
       return;
     }
-    await auditService.logAction('CREATE_TEAM', 'FIELD_TEAM', undefined, { name: newTeamName });
+    await auditService.logAction('CREATE_TEAM', 'FIELD_TEAM', result.team?.id, { name: newTeamName });
     setIsLoading(false);
     setIsAddTeamModalOpen(false);
     setNewTeamName('');

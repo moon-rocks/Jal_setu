@@ -97,6 +97,16 @@ export const CitizenReportPage: React.FC = () => {
 
   const selectedEvidence = evidencePhotos[selectedEvidenceIndex];
   const autoTimestampText = new Date(selectedEvidence?.capturedAt || Date.now()).toLocaleString();
+  const hasValidGps = Boolean(
+    reportLocation?.gpsVerified
+    && Number.isFinite(reportLocation.latitude)
+    && reportLocation.latitude >= -90
+    && reportLocation.latitude <= 90
+    && Number.isFinite(reportLocation.longitude)
+    && reportLocation.longitude >= -180
+    && reportLocation.longitude <= 180
+  );
+  const hasDetectedWard = Boolean(reportLocation?.wardId && reportLocation.wardNumber && reportLocation.ward);
 
   const selectedIssueMeta = WATER_ISSUES.find((i) => i.id === selectedIssue) || WATER_ISSUES[0];
 
@@ -134,8 +144,8 @@ export const CitizenReportPage: React.FC = () => {
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!reportLocation?.gpsVerified || !reportLocation.wardId || !reportLocation.wardNumber || !reportLocation.ward) {
-      setGpsError('A fresh GPS fix inside a configured PostGIS ward boundary is required before submitting.');
+    if (!reportLocation || !hasValidGps) {
+      setGpsError('A fresh, valid GPS fix is required before submitting.');
       return;
     }
     if (evidencePhotos.length < 3 || evidencePhotos.length > 5) {
@@ -434,6 +444,26 @@ export const CitizenReportPage: React.FC = () => {
                   className="absolute inset-0 w-full h-full object-cover"
                 />
               )}
+              <div className="absolute top-12 right-3 z-20 flex flex-col gap-1.5">
+                {evidencePhotos.map((photo, index) => (
+                  <button
+                    key={`${photo.file.name}-${photo.capturedAt}-review`}
+                    type="button"
+                    onClick={() => setSelectedEvidenceIndex(index)}
+                    aria-label={`Preview evidence photo ${index + 1}`}
+                    aria-pressed={index === selectedEvidenceIndex}
+                    className={`w-10 h-10 rounded-lg overflow-hidden border-2 bg-slate-900/80 cursor-pointer ${
+                      index === selectedEvidenceIndex ? 'border-white' : 'border-white/50'
+                    }`}
+                  >
+                    <img
+                      src={photo.previewUrl}
+                      alt={`Evidence photo ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent z-10 pointer-events-none" />
               <div className="absolute top-3 left-3 z-20">
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-600 text-white">
@@ -478,9 +508,9 @@ export const CitizenReportPage: React.FC = () => {
                       <RotateCw className={`w-3 h-3 ${isRefreshingGps ? 'animate-spin' : ''}`} />
                       <span>{isRefreshingGps ? 'Acquiring...' : 'Recalibrate GPS'}</span>
                     </button>
-                    {reportLocation && (
+                    {hasValidGps && (
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                        GIS Verified
+                        {hasDetectedWard ? 'GIS Verified' : 'GPS Verified'}
                       </span>
                     )}
                   </div>
@@ -492,7 +522,9 @@ export const CitizenReportPage: React.FC = () => {
                 <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                   <span>
-                    {reportLocation ? `${reportLocation.ward} · ${reportLocation.city}` : 'GPS Location Required'}
+                    {reportLocation
+                      ? [reportLocation.ward, reportLocation.city].filter(Boolean).join(' · ') || 'GPS Coordinates Verified'
+                      : 'GPS Location Required'}
                   </span>
                 </p>
 
@@ -508,7 +540,7 @@ export const CitizenReportPage: React.FC = () => {
                       <span className="block text-[10px] uppercase text-slate-400 font-bold">Fix Status</span>
                       <span className="text-emerald-700 font-semibold flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        Verified on GIS Map
+                        {hasDetectedWard ? 'Verified on GIS Map' : 'GPS verified · ward unavailable'}
                       </span>
                     </div>
                     <div>
@@ -593,11 +625,11 @@ export const CitizenReportPage: React.FC = () => {
               variant="civic"
               size="lg"
               isLoading={isSubmitting}
-              disabled={!reportLocation?.gpsVerified || !reportLocation.wardId || !reportLocation.wardNumber || !reportLocation.ward || evidencePhotos.length < 3 || evidencePhotos.length > 5 || isSubmitting}
+              disabled={!hasValidGps || evidencePhotos.length < 3 || evidencePhotos.length > 5 || isSubmitting}
               rightIcon={<CheckCircle2 className="w-5 h-5" />}
             >
-              {!reportLocation?.gpsVerified || !reportLocation.wardId || !reportLocation.wardNumber || !reportLocation.ward
-                ? 'Verified GPS Ward Required'
+              {!hasValidGps
+                ? 'Verified GPS Required'
                 : evidencePhotos.length < 3
                   ? 'Add at Least 3 Photos'
                   : 'Submit Water Report'}

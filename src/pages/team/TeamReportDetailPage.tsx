@@ -26,6 +26,7 @@ import { teamMemberService } from '../../services/teamMemberService';
 import { AssignedReportItem, WorkStatus, WorkUpdateItem } from '../../types/teamMember';
 import { MapContainer } from '../../components/common/MapContainer';
 import { ReportEvidencePhoto, reportService } from '../../services/reportService';
+import { useRealtimeSubscription } from '../../hooks/useRealtime';
 
 export const TeamReportDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -39,6 +40,7 @@ export const TeamReportDetailPage: React.FC = () => {
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   // Quick update modal / form state
@@ -51,32 +53,49 @@ export const TeamReportDetailPage: React.FC = () => {
   const [completionNotes, setCompletionNotes] = useState('');
   const [completionPhotoUrl, setCompletionPhotoUrl] = useState('');
 
-  useEffect(() => {
-    async function loadReport() {
-      if (!id) return;
-      setIsLoading(true);
-      setErrorMsg(null);
-      setEvidenceError(null);
+  const loadReport = async () => {
+    if (!id) return;
+    setIsLoading(true);
+    setActionError(null);
+    setEvidenceError(null);
+    try {
       const data = await teamMemberService.getAssignedReportById(id, memberId);
-      if (data) {
-        setReport(data);
-        const [wUpdates, evidence] = await Promise.all([
-          teamMemberService.getWorkUpdates(data.id),
-          reportService.getEvidencePhotos(data.id).catch((error) => {
-            console.error('Unable to load citizen evidence photos:', error);
-            setEvidenceError(error instanceof Error ? error.message : 'Unable to load evidence photos.');
-            return [];
-          }),
-        ]);
-        setUpdates(wUpdates);
-        setCitizenEvidencePhotos(evidence);
-      } else {
+      if (!data) {
         setErrorMsg('Report not found or not assigned to your account.');
+        return;
       }
+
+      setReport(data);
+      const [updatesResult, evidenceResult] = await Promise.allSettled([
+        teamMemberService.getWorkUpdates(data.id),
+        reportService.getEvidencePhotos(data.id),
+      ]);
+      if (updatesResult.status === 'fulfilled') {
+        setUpdates(updatesResult.value);
+      } else {
+        console.error('Unable to load report work updates:', updatesResult.reason);
+        setErrorMsg(updatesResult.reason instanceof Error ? updatesResult.reason.message : 'Unable to load work progress.');
+      }
+      if (evidenceResult.status === 'fulfilled') {
+        setCitizenEvidencePhotos(evidenceResult.value);
+      } else {
+        console.error('Unable to load citizen evidence photos:', evidenceResult.reason);
+        setEvidenceError(evidenceResult.reason instanceof Error ? evidenceResult.reason.message : 'Unable to load evidence photos.');
+      }
+    } catch (error) {
+      console.error('Unable to load assigned report details:', error);
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to load assigned report details.');
+    } finally {
       setIsLoading(false);
     }
-    loadReport();
+  };
+
+  useEffect(() => {
+    void loadReport();
   }, [id, memberId]);
+
+  useRealtimeSubscription('reports', () => void loadReport());
+  useRealtimeSubscription('report_work_updates', () => void loadReport());
 
   if (isLoading) {
     return (
@@ -109,15 +128,20 @@ export const TeamReportDetailPage: React.FC = () => {
   // Handle work status transitions
   const handleTransition = async (newStatus: WorkStatus) => {
     setActionLoading(true);
-    const res = await teamMemberService.updateWorkStatus(report.id, memberId, newStatus);
-    setActionLoading(false);
-
-    if (res.success) {
+    setErrorMsg(null);
+    try {
+      const res = await teamMemberService.updateWorkStatus(report.id, memberId, newStatus);
+      if (!res.success) {
+        setActionError(res.error || 'Failed to update status.');
+        return;
+      }
       setReport({ ...report, status: newStatus });
-      const refreshed = await teamMemberService.getWorkUpdates(report.id);
-      setUpdates(refreshed);
-    } else {
-      alert(res.error || 'Failed to update status');
+      if (res.error) setActionError(res.error);
+      setUpdates(await teamMemberService.getWorkUpdates(report.id));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to update status.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -126,17 +150,20 @@ export const TeamReportDetailPage: React.FC = () => {
     e.preventDefault();
     if (!updateMessage.trim()) return;
 
-    await teamMemberService.addWorkUpdate(report.id, {
-      teamMemberId: memberId,
-      teamMemberName: teamMemberProfile?.name || 'Field Technician',
-      updateType: updateType as any,
-      message: updateMessage.trim(),
-    });
-
-    setUpdateMessage('');
-    setShowUpdateModal(false);
-    const refreshed = await teamMemberService.getWorkUpdates(report.id);
-    setUpdates(refreshed);
+    setActionError(null);
+    try {
+      await teamMemberService.addWorkUpdate(report.id, {
+        teamMemberId: teamMemberProfile?.id || memberId,
+        teamMemberName: teamMemberProfile?.name || 'Field Technician',
+        updateType: updateType as any,
+        message: updateMessage.trim(),
+      });
+      setUpdateMessage('');
+      setShowUpdateModal(false);
+      setUpdates(await teamMemberService.getWorkUpdates(report.id));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to save the work update.');
+    }
   };
 
   // Submit completion
@@ -145,15 +172,25 @@ export const TeamReportDetailPage: React.FC = () => {
     if (!completionNotes.trim()) return;
 
     setActionLoading(true);
-    await teamMemberService.updateWorkStatus(report.id, memberId, 'completed', {
-      notes: completionNotes.trim(),
-      photoUrl: completionPhotoUrl || undefined,
-    });
-    setActionLoading(false);
-    setShowCompletionModal(false);
-    setReport({ ...report, status: 'completed', completionNotes, afterPhotoUrl: completionPhotoUrl });
-    const refreshed = await teamMemberService.getWorkUpdates(report.id);
-    setUpdates(refreshed);
+    setActionError(null);
+    try {
+      const result = await teamMemberService.updateWorkStatus(report.id, memberId, 'completed', {
+        notes: completionNotes.trim(),
+        photoUrl: completionPhotoUrl || undefined,
+      });
+      if (!result.success) {
+        setActionError(result.error || 'Unable to submit completed work.');
+        return;
+      }
+      setShowCompletionModal(false);
+      setReport({ ...report, status: 'completed', completionNotes, afterPhotoUrl: completionPhotoUrl });
+      if (result.error) setActionError(result.error);
+      setUpdates(await teamMemberService.getWorkUpdates(report.id));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to submit completed work.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // Status Stepper Index
@@ -169,6 +206,7 @@ export const TeamReportDetailPage: React.FC = () => {
 
   return (
     <div className="space-y-6 select-none font-sans text-left">
+      {actionError && <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">{actionError}</p>}
       {/* Back button & Title header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
         <div className="min-w-0">

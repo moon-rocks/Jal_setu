@@ -26,13 +26,17 @@ export const AdminLoginPage: React.FC = () => {
     setError('');
     setIsLoading(true);
 
-    const result = await signInWithPassword(officerId.trim(), password, 'admin');
-    setIsLoading(false);
-
-    if (result.success) {
-      navigate('/admin');
-    } else {
-      setError(result.error || 'Authentication failed. Please verify your municipal officer credentials.');
+    try {
+      const result = await signInWithPassword(officerId.trim(), password, 'admin');
+      if (result.success) {
+        navigate('/admin');
+      } else {
+        setError(result.error || 'Authentication failed. Please verify your municipal officer credentials.');
+      }
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : 'Unable to sign in. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -99,8 +103,8 @@ export const AdminLoginPage: React.FC = () => {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <Input
-              label="Municipal Employee / Officer ID"
-              type="text"
+              label="Municipal Officer Email"
+              type="email"
               value={officerId}
               onChange={(e) => setOfficerId(e.target.value)}
               leftIcon={<UserCheck className="w-4 h-4" />}

@@ -21,6 +21,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { teamMemberService } from '../../services/teamMemberService';
 import { AssignedReportItem, WorkUpdateItem } from '../../types/teamMember';
+import { useRealtimeSubscription } from '../../hooks/useRealtime';
 
 export const TeamDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -28,22 +29,41 @@ export const TeamDashboardPage: React.FC = () => {
   const [reports, setReports] = useState<AssignedReportItem[]>([]);
   const [recentUpdates, setRecentUpdates] = useState<WorkUpdateItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const memberId = teamMemberProfile?.id || user?.id || '';
 
-  useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      const [assigned, updates] = await Promise.all([
+  const loadData = async () => {
+    if (!memberId) return;
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const [assignedResult, updatesResult] = await Promise.allSettled([
         teamMemberService.getAssignedReports(memberId),
         teamMemberService.getRecentWorkUpdates(memberId),
       ]);
-      setReports(assigned);
-      setRecentUpdates(updates);
+      if (assignedResult.status === 'rejected') throw assignedResult.reason;
+
+      setReports(assignedResult.value);
+      if (updatesResult.status === 'fulfilled') {
+        setRecentUpdates(updatesResult.value);
+      } else {
+        console.error('Unable to load recent team work updates:', updatesResult.reason);
+        setRecentUpdates([]);
+      }
+    } catch (error) {
+      console.error('Unable to load the team dashboard assignments:', error);
+      setLoadError(error instanceof Error ? error.message : 'Unable to load assigned reports.');
+    } finally {
       setIsLoading(false);
     }
-    loadData();
+  };
+
+  useEffect(() => {
+    void loadData();
   }, [memberId]);
+  useRealtimeSubscription('reports', () => void loadData());
+  useRealtimeSubscription('report_work_updates', () => void loadData());
 
   // Metric counts
   const totalAssigned = reports.length;
@@ -128,6 +148,7 @@ export const TeamDashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6 select-none font-sans">
+      {loadError && <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{loadError}</p>}
       {/* Top Welcome & Patrol Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-[#0C1B33] via-[#0E2448] to-[#0A162B] p-5 sm:p-6 rounded-2xl border border-slate-800 text-white shadow-lg">
         <div className="space-y-1">

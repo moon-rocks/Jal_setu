@@ -210,7 +210,7 @@ export const CitizenReportDetailPage: React.FC = () => {
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
               Official Resolution Pipeline
             </h4>
-            <ReportTimeline currentStatus={currentStatus} timestamps={timelineTimestamps} />
+            <ReportTimeline currentStatus={currentStatus} timestamps={timelineTimestamps} completedAt={report.completedAt} />
           </Card>
         </div>
       </div>

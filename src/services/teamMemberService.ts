@@ -72,11 +72,11 @@ const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 const mapReportRow = (row: any): AssignedReportItem => {
   const rawStatus = String(row.status || '').toLowerCase();
   const status: WorkStatus = rawStatus === 'team_assigned'
-    ? 'assigned'
+    ? row.started_at ? 'accepted' : 'assigned'
     : rawStatus === 'repair_in_progress'
-      ? 'in_progress'
+      ? row.completed_at ? 'completed' : 'in_progress'
       : rawStatus === 'resolved'
-        ? 'completed'
+        ? row.verified_at ? 'admin_verified' : 'completed'
         : (rawStatus as WorkStatus);
 
   return {
@@ -97,6 +97,7 @@ const mapReportRow = (row: any): AssignedReportItem => {
     },
     citizenReportDate: row.submitted_at || row.created_at || '',
     assignedDate: row.assigned_at || '',
+    startedAt: row.started_at || undefined,
     assignedBy: row.assigned_by_name || undefined,
     deadline: row.assignment_deadline || undefined,
     instructions: row.assignment_instructions || undefined,
@@ -126,7 +127,7 @@ const mapWorkUpdate = (row: any): WorkUpdateItem => ({
 
 const mapTeamMember = (row: any): TeamMemberProfile => ({
   id: row.id,
-  userId: row.user_id || row.profile_id || row.id,
+  userId: row.user_id || row.profile_id || '',
   name: row.name || row.full_name || '',
   email: row.email || '',
   phone: row.phone || '',
@@ -260,18 +261,25 @@ export const teamMemberService = {
     return true;
   },
 
-  async resetPassword(email: string, memberId: string): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
+  async resetPassword(email: string, memberId: string): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured) return { success: false, error: 'Supabase is not configured.' };
     try {
+      const session = (await supabase.auth.getSession()).data.session;
       const response = await fetch(buildApiUrl('/api/admin/reset-team-password'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ email, memberId }),
       });
       const result = await readJsonResponse<{ success?: boolean; error?: string }>(response);
-      return response.ok && !!result.data?.success;
-    } catch {
-      return false;
+      return response.ok && result.data?.success
+        ? { success: true }
+        : { success: false, error: result.error || result.data?.error || 'Unable to request a password reset.' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unable to reach the password service.' };
     }
   },
 
@@ -303,7 +311,7 @@ export const teamMemberService = {
     if (!data) return null;
     if (memberId) {
       const member = await this.getTeamMemberById(memberId);
-      if (!member || data.assigned_member_id !== member.id) return null;
+      if (!member || member.status !== 'active' || data.assigned_member_id !== member.id) return null;
     }
     return this.signReportEvidence(mapReportRow(data));
   },
@@ -313,50 +321,102 @@ export const teamMemberService = {
     requireSupabase();
     const report = await this.getAssignedReportById(reportId, memberId);
     if (!report) return { success: false, error: 'Assigned report not found.' };
-    const nextStatus = newStatus === 'completed' ? 'resolved' : newStatus === 'in_progress' ? 'repair_in_progress' : 'team_assigned';
+    const now = new Date().toISOString();
+    const nextStatus = newStatus === 'in_progress' || newStatus === 'completed' ? 'repair_in_progress' : 'team_assigned';
     const payload: Record<string, unknown> = { status: nextStatus, updated_at: new Date().toISOString() };
+    if (newStatus === 'accepted' || newStatus === 'in_progress') {
+      payload.started_at = report.startedAt || now;
+    }
     if (newStatus === 'completed') {
-      payload.completed_at = new Date().toISOString();
+      payload.completed_at = now;
       payload.completion_notes = options?.notes;
       payload.repair_notes = options?.notes;
       if (options?.photoUrl) payload.after_photo_url = options.photoUrl;
     }
     const { error } = await this.updateReportById(reportId, payload);
     if (error) return { success: false, error: error.message };
-    await auditService.logAction('WORK_STATUS_CHANGED', 'REPORT', reportId, { fromStatus: report.status, toStatus: newStatus, changedBy: memberId, notes: options?.notes });
-    await this.addWorkUpdate(reportId, {
-      teamMemberId: memberId,
-      teamMemberName: report.assignedMemberName || '',
-      updateType: newStatus === 'accepted' ? 'work_started' : newStatus === 'in_progress' ? 'repair_started' : 'repair_completed',
-      message: options?.notes || `Status advanced to ${newStatus.replace('_', ' ')}`,
-      photoUrl: options?.photoUrl,
+    const followUpErrors: string[] = [];
+    const assignmentStatus = newStatus === 'completed' ? 'completed' : newStatus === 'in_progress' ? 'in_progress' : 'assigned';
+    const { error: assignmentStatusError } = await supabase.rpc('sync_team_assignment_status', {
+      p_report_id: report.id,
+      p_status: assignmentStatus,
     });
-    return { success: true };
+    if (assignmentStatusError) {
+      console.error('Unable to synchronize the team-assignment status:', assignmentStatusError);
+      followUpErrors.push('The report status was saved, but its team-assignment status could not be synchronized.');
+    }
+    try {
+      await auditService.logAction('WORK_STATUS_CHANGED', 'REPORT', reportId, { fromStatus: report.status, toStatus: newStatus, changedBy: memberId, notes: options?.notes });
+    } catch (auditError) {
+      console.error('Unable to record the work-status audit event:', auditError);
+      followUpErrors.push('The status was saved, but its audit event could not be recorded.');
+    }
+
+    try {
+      await this.addWorkUpdate(reportId, {
+        teamMemberId: memberId,
+        teamMemberName: report.assignedMemberName || '',
+        updateType: newStatus === 'accepted' ? 'work_started' : newStatus === 'in_progress' ? 'repair_started' : 'repair_completed',
+        message: options?.notes || `Status advanced to ${newStatus.replace('_', ' ')}`,
+        photoUrl: options?.photoUrl,
+      });
+    } catch (updateError) {
+      console.error('Unable to save the team work update:', updateError);
+      followUpErrors.push('The status was saved, but the progress note could not be recorded.');
+    }
+
+    return { success: true, error: followUpErrors.length ? followUpErrors.join(' ') : undefined };
   },
 
-  async adminVerifyReport(reportId: string, adminId: string, approved: boolean, feedbackNotes: string): Promise<{ success: boolean; error?: string }> {
+  async adminVerifyReport(reportId: string, approved: boolean, feedbackNotes: string): Promise<{ success: boolean; error?: string }> {
     requireSupabase();
     const report = await this.getAssignedReportById(reportId);
     if (!report) return { success: false, error: 'Report not found.' };
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return { success: false, error: 'An authenticated administrator is required.' };
     const { error } = await this.updateReportById(reportId, {
       status: approved ? 'resolved' : 'repair_in_progress',
       verified_at: approved ? new Date().toISOString() : null,
       admin_verified_by: approved ? user?.id || null : null,
       admin_verification_notes: feedbackNotes,
+      ...(approved ? {} : { completed_at: null }),
     });
     if (error) return { success: false, error: error.message };
-    await auditService.logAction(approved ? 'ADMIN_VERIFIED_REPORT' : 'ADMIN_REJECTED_COMPLETION', 'REPORT', reportId, { adminId, feedbackNotes });
-    if (report.assignedMemberId) {
-      await this.sendNotification({
-        userId: report.assignedMemberId,
-        title: approved ? `Work Approved: ${report.reportNumber}` : `Action Required: ${report.reportNumber}`,
-        message: feedbackNotes,
-        type: approved ? 'approved' : 'rejected',
-        reportId: report.id,
-      });
+    const followUpErrors: string[] = [];
+    const { error: assignmentStatusError } = await supabase.rpc('sync_team_assignment_status', {
+      p_report_id: report.id,
+      p_status: approved ? 'completed' : 'in_progress',
+    });
+    if (assignmentStatusError) {
+      console.error('Unable to synchronize the team-assignment status after report verification:', assignmentStatusError);
+      followUpErrors.push('The report verification was saved, but its team-assignment status could not be synchronized.');
     }
-    return { success: true };
+    try {
+      await auditService.logAction(approved ? 'ADMIN_VERIFIED_REPORT' : 'ADMIN_REJECTED_COMPLETION', 'REPORT', reportId, { adminId: user.id, feedbackNotes });
+    } catch (auditError) {
+      console.error('Unable to record the report-verification audit event:', auditError);
+      followUpErrors.push('The verification was saved, but its audit event could not be recorded.');
+    }
+    if (report.assignedMemberId) {
+      try {
+        const member = await this.getTeamMemberById(report.assignedMemberId);
+        if (!member?.userId) {
+          followUpErrors.push('The verification was saved, but the assigned team member has no linked sign-in account for notifications.');
+        } else {
+          await this.sendNotification({
+            userId: member.userId,
+            title: approved ? `Work Approved: ${report.reportNumber}` : `Action Required: ${report.reportNumber}`,
+            message: feedbackNotes,
+            type: approved ? 'approved' : 'rejected',
+            reportId: report.id,
+          });
+        }
+      } catch (notificationError) {
+        console.error('Unable to notify the assigned team member about report verification:', notificationError);
+        followUpErrors.push('The verification was saved, but the team member notification could not be delivered.');
+      }
+    }
+    return { success: true, error: followUpErrors.length ? followUpErrors.join(' ') : undefined };
   },
 
   async getWorkUpdates(reportId: string): Promise<WorkUpdateItem[]> {
@@ -414,23 +474,79 @@ export const teamMemberService = {
     requireSupabase();
     const member = await this.getTeamMemberById(teamMemberId);
     if (!member) return { success: false, error: 'Team member not found.' };
+    if (member.status !== 'active') return { success: false, error: 'Only active team members can receive assignments.' };
+    if (!member.teamId) return { success: false, error: 'The selected team member is not linked to a field unit.' };
     const { data: report, error: reportError } = await reportQuery(reportId).maybeSingle();
     if (reportError || !report) return { success: false, error: reportError?.message || 'Report not found.' };
     const { data: userData } = await supabase.auth.getUser();
+    const assignedAt = new Date().toISOString();
     const { error } = await supabase.from('reports').update({
       assigned_member_id: member.id,
       assigned_member_name: member.name,
       assigned_team_id: member.teamId,
+      assigned_team_name: member.teamName,
       assignment_deadline: options?.deadline || null,
       assignment_instructions: options?.instructions || null,
       assigned_by_name: options?.assignedBy || userData.user?.email || null,
       status: 'team_assigned',
-      assigned_at: new Date().toISOString(),
+      assigned_at: assignedAt,
+      started_at: null,
+      completed_at: null,
+      verified_at: null,
+      admin_verified_by: null,
+      admin_verification_notes: null,
+      completion_notes: null,
+      repair_notes: null,
+      after_photo_url: null,
     }).eq('id', report.id);
     if (error) return { success: false, error: error.message };
-    await auditService.logAction('ASSIGN_REPORT', 'REPORT', report.id, { memberId: member.id, deadline: options?.deadline });
-    await this.sendNotification({ userId: member.userId, title: `New Assignment: ${report.report_number}`, message: report.title, type: 'assignment', reportId: report.id });
-    return { success: true };
+
+    const warnings: string[] = [];
+    const { data: existingAssignment, error: assignmentLookupError } = await supabase
+      .from('team_assignments')
+      .select('id')
+      .eq('report_id', report.id)
+      .order('assigned_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (assignmentLookupError) {
+      console.error('Unable to check for an existing team assignment:', assignmentLookupError);
+      warnings.push('The report was assigned, but its team-assignment record could not be checked.');
+    } else {
+      const assignmentPayload = {
+        report_id: report.id,
+        team_id: member.teamId,
+        assigned_by: userData.user?.id || null,
+        status: 'assigned',
+        notes: options?.instructions || null,
+        assigned_at: assignedAt,
+      };
+      const assignmentWrite = existingAssignment
+        ? await supabase.from('team_assignments').update(assignmentPayload).eq('id', existingAssignment.id)
+        : await supabase.from('team_assignments').insert(assignmentPayload);
+      if (assignmentWrite.error) {
+        console.error('Unable to save the team-assignment record:', assignmentWrite.error);
+        warnings.push('The report assignment was saved, but its team-assignment record could not be updated.');
+      }
+    }
+
+    try {
+      await auditService.logAction('ASSIGN_REPORT', 'REPORT', report.id, { memberId: member.id, teamId: member.teamId, deadline: options?.deadline });
+    } catch (auditError) {
+      console.error('Unable to record the report-assignment audit event:', auditError);
+      warnings.push('The assignment was saved, but its audit event could not be recorded.');
+    }
+    if (!member.userId) {
+      warnings.push('The assignment was saved, but this team member has no linked sign-in account for notifications.');
+    } else {
+      try {
+        await this.sendNotification({ userId: member.userId, title: `New Assignment: ${report.report_number}`, message: report.title, type: 'assignment', reportId: report.id });
+      } catch (notificationError) {
+        console.error('Unable to notify the assigned team member:', notificationError);
+        warnings.push('The assignment was saved, but the team member notification could not be delivered.');
+      }
+    }
+    return { success: true, error: warnings.length ? warnings.join(' ') : undefined };
   },
 
   async getTeamNotifications(memberId?: string): Promise<TeamNotificationItem[]> {

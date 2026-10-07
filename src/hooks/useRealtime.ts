@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export function useRealtimeSubscription(
@@ -6,6 +6,9 @@ export function useRealtimeSubscription(
   onEvent: (payload: any) => void,
   filter?: string
 ) {
+  const callbackRef = useRef(onEvent);
+  callbackRef.current = onEvent;
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
@@ -20,7 +23,7 @@ export function useRealtimeSubscription(
           filter,
         },
         (payload) => {
-          onEvent(payload);
+          callbackRef.current(payload);
         }
       )
       .subscribe();

@@ -224,15 +224,6 @@ app.post(['/api/admin/reject-report', '/api/admin/delete-report'], async (req: R
         .eq('id', reportId);
       if (deleteError) return res.status(500).json({ success: false, error: deleteError.message });
 
-      const { error: auditError } = await callerSupabase
-        .from('audit_logs')
-        .delete()
-        .eq('entity_type', 'REPORT')
-        .in('entity_id', [reportId, report.report_number]);
-      if (auditError) {
-        return res.status(500).json({ success: false, error: `Report deleted, but report audit details could not be removed: ${auditError.message}` });
-      }
-
       const remainingPaths = await listReportStoragePaths(callerSupabase, reportId);
       if (remainingPaths.length > 0) {
         try {
@@ -355,8 +346,56 @@ app.patch('/api/admin/reports/:reportId', async (req: Request, res: Response) =>
 });
 
 // -------------------------------------------------------------
-// SECURE ADMIN TEAM MEMBER CREATION ENDPOINT
+// REMOVE INCOMPLETE CITIZEN REPORT SUBMISSIONS
 // -------------------------------------------------------------
+app.delete('/api/citizen/reports/:reportId/submission', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!accessToken) return res.status(401).json({ success: false, error: 'Authentication is required.' });
+    if (!isUuid(req.params.reportId)) return res.status(400).json({ success: false, error: 'A valid report ID is required.' });
+    if (!requireServiceRole(res, 'Cleaning up an incomplete report submission requires a privileged server key.')) return;
+
+    const callerSupabase = createCallerClient(accessToken);
+    const { data: { user }, error: authError } = await callerSupabase.auth.getUser(accessToken);
+    if (authError || !user) return res.status(401).json({ success: false, error: 'The session is invalid or expired.' });
+
+    const { data: report, error: reportError } = await serverSupabase
+      .from('reports')
+      .select('id, citizen_id, status')
+      .eq('id', req.params.reportId)
+      .maybeSingle();
+    if (reportError) return res.status(500).json({ success: false, error: reportError.message });
+    if (!report || report.citizen_id !== user.id) return res.status(404).json({ success: false, error: 'Report not found.' });
+    if (report.status !== 'submitted') {
+      return res.status(409).json({ success: false, error: 'The report is no longer an incomplete submission and cannot be removed.' });
+    }
+
+    const storagePaths = await getAllReportStoragePaths(serverSupabase, report.id);
+    await removeReportStoragePaths(serverSupabase, storagePaths);
+    const { data: deletedReports, error: deleteError } = await serverSupabase
+      .from('reports')
+      .delete()
+      .eq('id', report.id)
+      .eq('citizen_id', user.id)
+      .eq('status', 'submitted')
+      .select('id');
+    if (deleteError) return res.status(500).json({ success: false, error: `Unable to remove the incomplete report: ${deleteError.message}` });
+    if (!deletedReports?.length) {
+      return res.status(409).json({ success: false, error: 'The report changed during cleanup and was not removed.' });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Incomplete report cleanup failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unable to clean up the incomplete report submission.',
+    });
+  }
+});
+
+// SECURE ADMIN TEAM MEMBER CREATION ENDPOINT
 app.post('/api/admin/create-team-member', async (req: Request, res: Response) => {
   try {
     const { isAdmin, userId: adminUserId, email: adminEmail } = await verifyAdminCaller(req);

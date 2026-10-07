@@ -63,7 +63,7 @@ export const analyticsService = {
 
     const [{ data: reports, error: reportsError }, { data: teams, error: teamsError }] = await Promise.all([
       reportsQuery.order('submitted_at', { ascending: false }),
-      supabase.from('field_teams').select('id, name, status, members_count'),
+      supabase.from('field_teams').select('id, name, status, team_members(id)'),
     ]);
 
     if (reportsError) throw reportsError;
@@ -129,7 +129,7 @@ export const analyticsService = {
       return {
         teamId: team.id,
         teamName: team.name,
-        membersCount: Number(team.members_count || 0),
+        membersCount: team.team_members?.length || 0,
         activeReports: teamReports.length,
         highPriorityReports,
         loadScore,

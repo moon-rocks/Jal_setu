@@ -150,9 +150,17 @@ export const reportService = {
 
   async createReport(dto: CreateReportDTO): Promise<{ success: boolean; report?: ReportItem; error?: string }> {
     if (!isSupabaseConfigured) return { success: false, error: 'Supabase is not configured.' };
-    const { gpsVerified, wardId, wardNumber, wardName } = dto;
-    if (!gpsVerified || !wardId || !wardNumber || !wardName) {
-      return { success: false, error: 'A GPS-verified location inside a configured PostGIS ward is required.' };
+    const { gpsVerified, wardId, wardName } = dto;
+    if (
+      !gpsVerified
+      || !Number.isFinite(dto.latitude)
+      || dto.latitude < -90
+      || dto.latitude > 90
+      || !Number.isFinite(dto.longitude)
+      || dto.longitude < -180
+      || dto.longitude > 180
+    ) {
+      return { success: false, error: 'A fresh, valid GPS fix is required.' };
     }
     if (!dto.evidencePhotos || dto.evidencePhotos.length < 3 || dto.evidencePhotos.length > 5) {
       return { success: false, error: 'Please attach between 3 and 5 evidence photos.' };
@@ -168,6 +176,7 @@ export const reportService = {
       });
 
       const result = await Promise.race([invokePromise, timeoutPromise]);
+      if (result.error) throw result.error;
       const parsed = result?.data ?? {};
       if (parsed?.success === false || parsed?.error) {
         throw new Error(parsed?.error || 'AI analysis did not complete successfully.');
@@ -176,6 +185,7 @@ export const reportService = {
     };
 
     let createdReport: { id: string; report_number: string; [key: string]: unknown } | null = null;
+    const uploadedPhotoPaths: string[] = [];
     try {
       const user = await getAuthenticatedCitizenUser();
       if (!user) {
@@ -183,20 +193,6 @@ export const reportService = {
       }
 
       const priority = dto.issueType === 'pipeline_leakage' || dto.issueType === 'no_water' ? 'high' : 'medium';
-      const fullAddress = dto.address
-        ? `${wardName ? `${wardName} · ` : ''}${dto.address}`
-        : null;
-      const stampedPhotos: Blob[] = [];
-      for (const photo of evidencePhotos) {
-        stampedPhotos.push(await stampEvidencePhoto(photo.file, {
-          wardNumber,
-          wardName,
-          latitude: dto.latitude,
-          longitude: dto.longitude,
-          capturedAt: photo.capturedAt,
-          reportId: reportNumber,
-        }));
-      }
       const insertPayload: Record<string, unknown> = {
         report_number: reportNumber,
         citizen_id: user.id,
@@ -211,18 +207,36 @@ export const reportService = {
         ward_id: wardId,
         ward_name: wardName,
         city: dto.city || null,
-        address: fullAddress,
+        address: dto.address || null,
         photo_url: dto.photoUrl || null,
       };
 
       const { data, error } = await supabase.from('reports').insert(insertPayload).select().single();
       if (error || !data) return { success: false, error: error?.message || 'Unable to create report.' };
       createdReport = data;
-      if (!data.ward_id || data.ward_id !== wardId || data.ward_name !== wardName) {
-        throw new Error('The submitted GPS point did not match the expected PostGIS ward. No evidence photos were uploaded.');
+
+      let persistedWardNumber = 'Not detected';
+      if (data.ward_id) {
+        const { data: persistedWard, error: wardLookupError } = await supabase
+          .from('wards')
+          .select('ward_number')
+          .eq('id', data.ward_id)
+          .maybeSingle();
+        if (wardLookupError) throw new Error(`Unable to confirm the report ward: ${wardLookupError.message}`);
+        if (persistedWard?.ward_number) persistedWardNumber = persistedWard.ward_number;
+      }
+      const stampedPhotos: Blob[] = [];
+      for (const photo of evidencePhotos) {
+        stampedPhotos.push(await stampEvidencePhoto(photo.file, {
+          wardNumber: persistedWardNumber,
+          wardName: data.ward_name || 'Not detected',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          capturedAt: photo.capturedAt,
+          reportId: reportNumber,
+        }));
       }
 
-      const uploadedPhotoPaths: string[] = [];
       for (const [index, photo] of evidencePhotos.entries()) {
         const stampedPhoto = stampedPhotos[index];
         const storagePath = `${data.id}/citizen/${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.jpg`;
@@ -263,28 +277,17 @@ export const reportService = {
           description: dto.description,
           latitude: dto.latitude,
           longitude: dto.longitude,
-          wardName: dto.wardName,
+          wardName: data.ward_name || undefined,
         });
 
-        if (aiResult?.success) {
-          await supabase.from('reports').update({
-            ai_status: 'verified_by_ai',
-            ai_confidence: aiResult.confidence ?? null,
-            ai_evidence: Array.isArray(aiResult.detectedFeatures) ? aiResult.detectedFeatures : [],
-            updated_at: new Date().toISOString(),
-          }).eq('id', data.id);
-        } else {
-          await supabase.from('reports').update({
-            ai_status: 'human_review_required',
-            updated_at: new Date().toISOString(),
-          }).eq('id', data.id);
-        }
+        if (!aiResult?.success) throw new Error('AI analysis did not complete successfully.');
       } catch (edgeError) {
         console.warn('Edge function invoke note:', edgeError);
-        await supabase.from('reports').update({
+        const { error: fallbackStatusError } = await supabase.from('reports').update({
           ai_status: 'human_review_required',
           updated_at: new Date().toISOString(),
         }).eq('id', data.id);
+        if (fallbackStatusError) console.error('Unable to mark the report for human review after AI analysis failed:', fallbackStatusError);
       }
 
       return { success: true, report: { ...(await this.mapRowToReport(data)), photoUrl } };
@@ -292,11 +295,33 @@ export const reportService = {
       console.warn('Report submission or evidence processing failed:', error);
       const message = error instanceof Error ? error.message : 'Unable to create report.';
       if (createdReport) {
-        return {
-          success: false,
-          report: { ...(await this.mapRowToReport(createdReport)), photoUrl },
-          error: `Report ${createdReport.report_number} was created, but evidence processing failed: ${message} Do not submit it again.`,
-        };
+        try {
+          const session = (await supabase.auth.getSession()).data.session;
+          if (!session?.access_token) throw new Error('Your login session is unavailable for safe report cleanup.');
+          const cleanupResponse = await fetch(buildApiUrl(`/api/citizen/reports/${createdReport.id}/submission`), {
+            method: 'DELETE',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          const cleanupResult = await cleanupResponse.json().catch(() => ({})) as { success?: boolean; error?: string };
+          if (!cleanupResponse.ok || !cleanupResult.success) {
+            throw new Error(cleanupResult.error || `Cleanup request failed (${cleanupResponse.status}).`);
+          }
+          return {
+            success: false,
+            error: `Report evidence processing failed and the incomplete report was removed. ${message}`,
+          };
+        } catch (cleanupError) {
+          const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : 'The incomplete report could not be removed.';
+          console.error('Incomplete report cleanup did not finish:', cleanupError);
+          return {
+            success: false,
+            report: { ...(await this.mapRowToReport(createdReport)), photoUrl },
+            error: `Report ${createdReport.report_number} was created, but evidence processing failed: ${message} Cleanup also failed: ${cleanupMessage} Do not submit it again.`,
+          };
+        }
       }
       return { success: false, error: message };
     }
@@ -586,6 +611,7 @@ export const reportService = {
       description: row.description,
       status: rawStatus as ReportStatus,
       priority: rawPriority as PriorityLevel,
+      completedAt: row.completed_at || undefined,
       location: {
         ward: detectedWard || '',
         city: row.city || '',

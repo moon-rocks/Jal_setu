@@ -44,11 +44,15 @@ export const AdminReportDetailPage: React.FC = () => {
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const [assignmentDeadline, setAssignmentDeadline] = useState('Today, 6:00 PM');
   const [assignmentInstructions, setAssignmentInstructions] = useState('');
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [isLocationVerified, setIsLocationVerified] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [reportLoadError, setReportLoadError] = useState<string | null>(null);
   const [aiData, setAiData] = useState<{ confidence?: number; summary?: string; recommendation?: string } | null>(null);
   const [timelineTimestamps, setTimelineTimestamps] = useState<Partial<Record<ReportStatus, string>>>({});
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [evidencePhotos, setEvidencePhotos] = useState<ReportEvidencePhoto[]>([]);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
 
@@ -59,27 +63,38 @@ export const AdminReportDetailPage: React.FC = () => {
   const fetchReport = async () => {
     if (!id) return;
     setIsLoading(true);
+    setReportLoadError(null);
     setEvidenceError(null);
-    const [data, history, aiResult, members, assignedDetail, evidence] = await Promise.all([
+    const [reportResult, historyResult, aiResultResult, membersResult, assignedResult, evidenceResult] = await Promise.allSettled([
       reportService.getReportById(id),
       reportService.getStatusHistory(id),
       reportService.getAiAnalysis(id),
       teamMemberService.getTeamMembers({ status: 'active' }),
       teamMemberService.getAssignedReportById(id),
-      reportService.getEvidencePhotos(id).catch((error) => {
-        console.error('Unable to load citizen evidence photos:', error);
-        setEvidenceError(error instanceof Error ? error.message : 'Unable to load evidence photos.');
-        return [];
-      }),
+      reportService.getEvidencePhotos(id),
     ]);
-    setEvidencePhotos(evidence);
+    if (reportResult.status === 'rejected') {
+      console.error('Unable to load report details:', reportResult.reason);
+      setReportLoadError(reportResult.reason instanceof Error ? reportResult.reason.message : 'Unable to load report details.');
+      setIsLoading(false);
+      return;
+    }
 
+    const data = reportResult.value;
     if (data) {
       setReport(data);
       setCurrentStatus(data.status);
       if (data.status !== 'submitted') setIsLocationVerified(true);
     }
 
+    if (evidenceResult.status === 'fulfilled') {
+      setEvidencePhotos(evidenceResult.value);
+    } else {
+      console.error('Unable to load citizen evidence photos:', evidenceResult.reason);
+      setEvidenceError(evidenceResult.reason instanceof Error ? evidenceResult.reason.message : 'Unable to load evidence photos.');
+    }
+
+    const assignedDetail = assignedResult.status === 'fulfilled' ? assignedResult.value : null;
     if (assignedDetail) {
       setAssignedReportData(assignedDetail);
       if (assignedDetail.assignedMemberId) {
@@ -89,10 +104,11 @@ export const AdminReportDetailPage: React.FC = () => {
         setAssignmentDeadline(assignedDetail.deadline);
       }
       if (assignedDetail.instructions) {
-        const [assignmentDeadline, setAssignmentDeadline] = useState('');
+        setAssignmentInstructions(assignedDetail.instructions);
       }
     }
 
+    const members = membersResult.status === 'fulfilled' ? membersResult.value : [];
     if (members && members.length > 0) {
       setTeamMembers(members);
       if (!selectedMemberId && members.length > 0) {
@@ -100,6 +116,7 @@ export const AdminReportDetailPage: React.FC = () => {
       }
     }
 
+    const aiResult = aiResultResult.status === 'fulfilled' ? aiResultResult.value : null;
     if (aiResult) {
       setAiData({
         confidence: aiResult.confidence,
@@ -108,6 +125,7 @@ export const AdminReportDetailPage: React.FC = () => {
       });
     }
 
+    const history = historyResult.status === 'fulfilled' ? historyResult.value : [];
     if (history && history.length > 0) {
       const tsMap: Partial<Record<ReportStatus, string>> = {};
       history.forEach((h: any) => {
@@ -157,43 +175,68 @@ export const AdminReportDetailPage: React.FC = () => {
   // Assign Team Member
   const handleAssignTeamMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedMemberId) return;
+    if (!selectedMemberId || isAssigning) return;
 
     const chosen = teamMembers.find((m) => m.id === selectedMemberId);
-    if (!chosen) return;
+    if (!chosen) {
+      setAssignmentError('Select an active field team member before dispatching.');
+      return;
+    }
 
-    setIsLoading(true);
-    await teamMemberService.assignReportToMember(reportId, selectedMemberId, {
-      deadline: assignmentDeadline,
-      instructions: assignmentInstructions,
-      assignedBy: 'Superintendent Engineer',
-    });
+    setAssignmentError(null);
+    setIsAssigning(true);
+    try {
+      const result = await teamMemberService.assignReportToMember(reportId, selectedMemberId, {
+        deadline: assignmentDeadline,
+        instructions: assignmentInstructions,
+      });
+      if (!result.success) {
+        setAssignmentError(result.error || 'Unable to save the team assignment.');
+        return;
+      }
 
-    setCurrentStatus('team_assigned');
-    setFeedbackNotice(`Dispatched assignment to ${chosen.name} (${chosen.designation}). Notification sent.`);
-    setTimeout(() => setFeedbackNotice(null), 4000);
-    fetchReport();
+      setCurrentStatus('team_assigned');
+      setFeedbackNotice(
+        `Dispatched assignment to ${chosen.name} (${chosen.designation})${result.error ? `. ${result.error}` : '. Team notification sent.'}`
+      );
+      setTimeout(() => setFeedbackNotice(null), 6000);
+      await fetchReport();
+    } catch (error) {
+      setAssignmentError(error instanceof Error ? error.message : 'Unable to dispatch the team assignment.');
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   const handleVerifyWork = async (approved: boolean) => {
     setIsVerifying(true);
-    await teamMemberService.adminVerifyReport(
-      reportId,
-      'admin-superintendent',
-      approved,
-      verificationFeedback
-    );
-    setIsVerifying(false);
+    setVerificationError(null);
+    try {
+      const result = await teamMemberService.adminVerifyReport(
+        reportId,
+        approved,
+        verificationFeedback
+      );
+      if (!result.success) {
+        setVerificationError(result.error || 'Unable to save report verification.');
+        return;
+      }
 
-    if (approved) {
-      setCurrentStatus('resolved');
-      setFeedbackNotice('Work verified and signed off. Report is marked as Resolved.');
-    } else {
-      setCurrentStatus('repair_in_progress');
-      setFeedbackNotice('Completion rejected. Revision request dispatched to field team.');
+      if (approved) {
+        setCurrentStatus('resolved');
+        setFeedbackNotice('Work verified and signed off. Report is marked as Resolved.');
+      } else {
+        setCurrentStatus('repair_in_progress');
+        setFeedbackNotice('Completion rejected. Revision request dispatched to field team.');
+      }
+      if (result.error) setVerificationError(result.error);
+      setTimeout(() => setFeedbackNotice(null), 4000);
+      await fetchReport();
+    } catch (error) {
+      setVerificationError(error instanceof Error ? error.message : 'Unable to save report verification.');
+    } finally {
+      setIsVerifying(false);
     }
-    setTimeout(() => setFeedbackNotice(null), 4000);
-    fetchReport();
   };
 
   const handleStatusChange = async (newStatus: ReportStatus) => {
@@ -232,7 +275,14 @@ export const AdminReportDetailPage: React.FC = () => {
   }
 
   if (!report) {
-    return <EmptyState title="Report not found" description="This report does not exist or is not available to your account." actionLabel="Back to reports" onAction={() => navigate('/admin/reports')} />;
+    return (
+      <EmptyState
+        title={reportLoadError ? 'Unable to load report' : 'Report not found'}
+        description={reportLoadError || 'This report does not exist or is not available to your account.'}
+        actionLabel={reportLoadError ? 'Retry' : 'Back to reports'}
+        onAction={() => reportLoadError ? void fetchReport() : navigate('/admin/reports')}
+      />
+    );
   }
 
   return (
@@ -260,6 +310,7 @@ export const AdminReportDetailPage: React.FC = () => {
           <span>{feedbackNotice}</span>
         </div>
       )}
+      {verificationError && <p role="alert" className="text-xs font-semibold text-rose-700">{verificationError}</p>}
 
       {/* Main Two-Column Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -519,10 +570,14 @@ export const AdminReportDetailPage: React.FC = () => {
                 <label className="text-xs font-semibold text-slate-700">Select Field Personnel *</label>
                 <select
                   value={selectedMemberId}
-                  onChange={(e) => setSelectedMemberId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedMemberId(e.target.value);
+                    setAssignmentError(null);
+                  }}
                   required
                   className="w-full bg-slate-50 text-slate-900 text-xs rounded-xl border border-slate-200 py-2.5 px-3 focus:outline-none focus:border-sky-500 cursor-pointer"
                 >
+                  {!teamMembers.length && <option value="">No active field team members available</option>}
                   {teamMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name} — {m.designation} ({m.teamName})
@@ -557,11 +612,13 @@ export const AdminReportDetailPage: React.FC = () => {
 
               <button
                 type="submit"
+                disabled={isAssigning || !teamMembers.length}
                 className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-sky-600/20"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>Dispatch Assignment & Notify Personnel</span>
+                <span>{isAssigning ? 'Saving Assignment...' : 'Dispatch Assignment & Notify Personnel'}</span>
               </button>
+              {assignmentError && <p role="alert" className="text-xs font-semibold text-rose-700">{assignmentError}</p>}
             </form>
           </Card>
 
@@ -609,7 +666,7 @@ export const AdminReportDetailPage: React.FC = () => {
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
               Live Case Progress
             </h4>
-            <ReportTimeline currentStatus={currentStatus} timestamps={timelineTimestamps} />
+            <ReportTimeline currentStatus={currentStatus} timestamps={timelineTimestamps} completedAt={report?.completedAt} />
           </Card>
         </div>
       </div>

@@ -89,6 +89,7 @@ export interface AssignedReportItem {
   };
   citizenReportDate: string;
   assignedDate: string;
+  startedAt?: string;
   assignedBy?: string;
   deadline?: string;
   instructions?: string;

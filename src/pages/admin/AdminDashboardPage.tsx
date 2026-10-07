@@ -45,14 +45,30 @@ export const AdminDashboardPage: React.FC = () => {
     setIsLoading(true);
     setErrorMessage('');
     try {
-      const [m, rep, locations] = await Promise.all([
+      const [metricsResult, reportsResult, locationsResult] = await Promise.allSettled([
         analyticsService.getDashboardMetrics(),
         reportService.getReports({ limit: 5 }),
         reportService.getMapLocations(),
       ]);
-      setMetrics(m);
-      setRecentReports(rep);
-      setComplaintLocations(locations);
+      if (reportsResult.status === 'rejected') throw reportsResult.reason;
+
+      setRecentReports(reportsResult.value);
+      const secondaryErrors: string[] = [];
+      if (metricsResult.status === 'fulfilled') {
+        setMetrics(metricsResult.value);
+      } else {
+        console.error('Unable to load dashboard metrics:', metricsResult.reason);
+        setMetrics(null);
+        secondaryErrors.push('Summary metrics are temporarily unavailable.');
+      }
+      if (locationsResult.status === 'fulfilled') {
+        setComplaintLocations(locationsResult.value);
+      } else {
+        console.error('Unable to load dashboard report locations:', locationsResult.reason);
+        setComplaintLocations([]);
+        secondaryErrors.push('Report map locations are temporarily unavailable.');
+      }
+      setErrorMessage(secondaryErrors.join(' '));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to load dashboard data.');
     } finally {

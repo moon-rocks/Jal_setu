@@ -8,31 +8,46 @@ export const teamService = {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('field_teams')
-        .select('*, team_members(id, name, role, phone)')
-        .order('name');
+      const [teamsResult, reportsResult] = await Promise.all([
+        supabase
+          .from('field_teams')
+          .select('*, team_members(id, name, role, phone)')
+          .order('name'),
+        supabase
+          .from('reports')
+          .select('assigned_team_id, status')
+          .not('assigned_team_id', 'is', null),
+      ]);
+      if (teamsResult.error) throw teamsResult.error;
+      if (reportsResult.error) throw reportsResult.error;
+      if (!teamsResult.data) return [];
+      const activeTasksByTeam = new Map<string, number>();
+      for (const report of reportsResult.data || []) {
+        if (report.status === 'resolved' || report.status === 'rejected' || report.status === 'duplicate') continue;
+        const teamId = report.assigned_team_id;
+        if (teamId) activeTasksByTeam.set(teamId, (activeTasksByTeam.get(teamId) || 0) + 1);
+      }
 
-      if (error) throw error;
-      if (!data) return [];
-
-      return data.map((t: any) => ({
-        id: t.id,
-        name: t.name,
-        status: t.status === 'available' ? 'active' : t.status as FieldTeam['status'],
-        assignedWards: t.assigned_wards || [],
-        vehicleNumber: t.vehicle_number,
-        membersCount: t.members_count || 0,
-        activeTasksCount: t.active_tasks_count || 0,
-        currentTask: t.current_task,
-        members: (t.team_members || []).map((member: any) => ({
-          id: member.id,
-          name: member.name,
-          role: member.role,
-          phone: member.phone,
-          avatarUrl: member.avatar_url,
-        })),
-      }));
+      return teamsResult.data.map((t: any) => {
+        const members = (t.team_members || []).map((member: any) => ({
+            id: member.id,
+            name: member.name,
+            role: member.role,
+            phone: member.phone,
+            avatarUrl: member.avatar_url,
+        }));
+        return {
+          id: t.id,
+          name: t.name,
+          status: t.status === 'available' ? 'active' : t.status as FieldTeam['status'],
+          assignedWards: t.assigned_wards || [],
+          vehicleNumber: t.vehicle_number,
+          membersCount: members.length,
+          activeTasksCount: activeTasksByTeam.get(t.id) || 0,
+          currentTask: t.current_task,
+          members,
+        };
+      });
     } catch (error) {
       throw error;
     }
@@ -43,18 +58,38 @@ export const teamService = {
     vehicleNumber?: string;
     assignedWards: string[];
     membersCount: number;
-  }): Promise<{ success: boolean; team?: FieldTeam }> {
+  }): Promise<{ success: boolean; team?: FieldTeam; error?: string }> {
     if (!isSupabaseConfigured) {
-      return { success: false };
+      return { success: false, error: 'Supabase is not configured.' };
     }
 
     try {
+      const requestedWards = [...new Set(teamData.assignedWards.map((ward) => ward.trim()).filter(Boolean))];
+      if (!requestedWards.length) {
+        return { success: false, error: 'Assign at least one existing municipal ward to the field team.' };
+      }
+      const { data: wards, error: wardsError } = await supabase
+        .from('wards')
+        .select('ward_number, ward_name')
+        .not('boundary', 'is', null);
+      if (wardsError) return { success: false, error: `Unable to validate municipal wards: ${wardsError.message}` };
+      const wardByLabel = new Map<string, string>();
+      for (const ward of wards || []) {
+        wardByLabel.set(String(ward.ward_number || '').trim().toLowerCase(), ward.ward_number);
+        wardByLabel.set(String(ward.ward_name || '').trim().toLowerCase(), ward.ward_number);
+      }
+      const matchedWards = requestedWards.map((label) => wardByLabel.get(label.toLowerCase()));
+      if (matchedWards.some((wardNumber) => !wardNumber)) {
+        return { success: false, error: 'Every assigned area must match a configured municipal ward number or name.' };
+      }
+      const normalizedWards = matchedWards.filter((wardNumber): wardNumber is string => Boolean(wardNumber));
+
       const { data, error } = await supabase
         .from('field_teams')
         .insert({
           name: teamData.name,
           vehicle_number: teamData.vehicleNumber,
-          assigned_wards: teamData.assignedWards,
+          assigned_wards: normalizedWards,
           members_count: teamData.membersCount,
           status: 'available',
         })
@@ -62,7 +97,7 @@ export const teamService = {
         .single();
 
       if (error || !data) {
-        return { success: false };
+        return { success: false, error: error?.message || 'Supabase did not return the created field team.' };
       }
 
       return {
@@ -77,8 +112,8 @@ export const teamService = {
           activeTasksCount: 0,
         },
       };
-    } catch {
-      return { success: false };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unable to create field team.' };
     }
   },
 
