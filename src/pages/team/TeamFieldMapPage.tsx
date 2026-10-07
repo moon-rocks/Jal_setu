@@ -119,7 +119,7 @@ export const TeamFieldMapPage: React.FC = () => {
       {/* MAP & SIDE INSPECTOR SPLIT */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Main Map: 2 cols */}
-        <div className="lg:col-span-2 relative h-[520px] rounded-2xl overflow-hidden border border-slate-800 shadow-xl bg-slate-950">
+        <div className="lg:col-span-2 relative min-w-0 h-[520px] rounded-2xl overflow-hidden border border-slate-800 shadow-xl bg-slate-950">
           <MapContainer
             mode="admin"
             complaints={selectedReport ? [{
@@ -142,7 +142,7 @@ export const TeamFieldMapPage: React.FC = () => {
         </div>
 
         {/* Selected Task Inspector Card: 1 col */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {selectedReport ? (
             <div className="p-5 rounded-2xl bg-[#0E1A30] border border-slate-800 space-y-4 shadow-lg text-left">
               {/* Task Header */}

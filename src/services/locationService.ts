@@ -8,6 +8,7 @@ export interface RealLocationData {
   ward: string;
   wardNumber?: string;
   wardId?: string;
+  gpsVerified?: boolean;
   city: string;
   address: string; // Human-readable address
   street?: string;
@@ -282,12 +283,11 @@ export const locationService = {
   /**
    * PostGIS Ward Detection:
    * Maps device coordinates to the corresponding municipal water ward.
-  * Returns a matched database ward or the actual reverse-geocoded locality when no ward is configured.
+  * Returns only a ward whose configured PostGIS boundary contains the GPS point.
    */
   async detectWard(
     latitude: number,
     longitude: number,
-    localityName?: string,
     cityName?: string
   ): Promise<{
     wardId?: string;
@@ -297,30 +297,26 @@ export const locationService = {
   }> {
     // 1. Try Supabase PostGIS RPC if available
     if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase.rpc('get_ward_by_coordinates', {
-          lat: latitude,
-          lon: longitude,
-        });
+      const { data, error } = await supabase.rpc('get_ward_by_coordinates', {
+        lat: latitude,
+        lon: longitude,
+      });
+      if (error) throw new Error(`PostGIS ward lookup failed: ${error.message}`);
 
-        if (!error && data && data.length > 0 && data[0]?.ward_name) {
-          return {
-            wardId: data[0].ward_id,
-            wardNumber: data[0].ward_number || data[0].ward_name.split(' - ')[0] || 'Ward Sector',
-            wardName: data[0].ward_name,
-            city: data[0].city || cityName || 'Municipal Jurisdiction',
-          };
-        }
-      } catch (err) {
-        console.warn('PostGIS RPC fallback to spatial calculation:', err);
+      if (data && data.length > 0 && data[0]?.ward_name) {
+        return {
+          wardId: data[0].ward_id,
+          wardNumber: data[0].ward_number || '',
+          wardName: data[0].ward_name,
+          city: data[0].city || cityName || 'Municipal Jurisdiction',
+        };
       }
     }
 
     const effectiveCity = cityName || 'Current Location';
-    const effectiveLocality = localityName || effectiveCity;
     return {
       wardNumber: '',
-      wardName: `${effectiveLocality}`,
+      wardName: '',
       city: effectiveCity,
     };
   },
@@ -352,7 +348,7 @@ export const locationService = {
 
     // 2. PostGIS Ward Detection
     console.log('[JalSetu GPS] Step 3: Determining Municipal Ward...');
-    const wardData = await this.detectWard(latitude, longitude, geocode.suburb || geocode.street, geocode.city);
+    const wardData = await this.detectWard(latitude, longitude, geocode.city);
     console.log('[JalSetu GPS] Step 3: Ward detected ->', wardData.wardName);
 
     const completeResult: RealLocationData = {
@@ -363,6 +359,7 @@ export const locationService = {
       ward: wardData.wardName,
       wardNumber: wardData.wardNumber,
       wardId: wardData.wardId,
+      gpsVerified: true,
       city: geocode.city || wardData.city,
       address: geocode.formattedShort,
       street: geocode.street,

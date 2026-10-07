@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   RotateCcw,
   RotateCw,
+  X,
 } from 'lucide-react';
 import { reportService } from '../../services/reportService';
 import { useLocationContext } from '../../context/LocationContext';
@@ -43,39 +44,45 @@ export const CitizenReportPage: React.FC = () => {
     locationState?.selectedIssue || 'pipeline_leakage'
   );
 
-  const [photoCaptured, setPhotoCaptured] = useState(false);
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedReport, setSubmittedReport] = useState<ReportItem | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submissionWarning, setSubmissionWarning] = useState<string | null>(null);
+  const [evidencePhotos, setEvidencePhotos] = useState<{ file: File; previewUrl: string; capturedAt: string }[]>([]);
+  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
+  const previewUrls = useRef(new Set<string>());
 
   // Fresh GPS state for the report
-  const [reportLocation, setReportLocation] = useState<RealLocationData | null>(globalLocation);
+  const [reportLocation, setReportLocation] = useState<RealLocationData | null>(null);
   const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
 
   const handleAcquireFreshGps = useCallback(async () => {
     setIsRefreshingGps(true);
     setGpsError(null);
+    setReportLocation(null);
     try {
       const freshLoc = await getFreshLocation();
       if (freshLoc) {
         setReportLocation(freshLoc);
+        if (!freshLoc.wardId || !freshLoc.wardNumber || !freshLoc.ward) {
+          setGpsError('GPS was acquired, but no configured PostGIS ward boundary contains this location.');
+        }
       } else {
         setGpsError('Please grant location permission to acquire fresh GPS coordinates.');
       }
     } catch (err: any) {
+      setReportLocation(null);
       setGpsError(err?.message || 'Failed to acquire device GPS.');
     } finally {
       setIsRefreshingGps(false);
     }
   }, [getFreshLocation]);
 
-  // Keep reportLocation in sync with globalLocation when it updates
-  useEffect(() => {
-    if (globalLocation) {
-      setReportLocation(globalLocation);
-    }
-  }, [globalLocation]);
+  useEffect(() => () => {
+    previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
 
   // Acquire fresh GPS when creating report if already permitted or on request
   useEffect(() => {
@@ -85,49 +92,60 @@ export const CitizenReportPage: React.FC = () => {
   }, []);
 
   const autoLocationText = reportLocation
-    ? `${reportLocation.ward} (GPS: ±${reportLocation.accuracy}m)`
+    ? `${reportLocation.wardNumber ? `Ward ${reportLocation.wardNumber}` : 'Ward boundary unavailable'} · ${reportLocation.latitude.toFixed(6)}, ${reportLocation.longitude.toFixed(6)}`
     : 'GPS Location Pending';
 
-  const autoTimestampText = new Date().toLocaleString('en-US', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const selectedEvidence = evidencePhotos[selectedEvidenceIndex];
+  const autoTimestampText = new Date(selectedEvidence?.capturedAt || Date.now()).toLocaleString();
 
   const selectedIssueMeta = WATER_ISSUES.find((i) => i.id === selectedIssue) || WATER_ISSUES[0];
 
-  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
-  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
-
-  const handleCapturePhoto = (file?: File) => {
-    if (file) {
-      setPhotoBlob(file);
-      setPhotoPreviewUrl(URL.createObjectURL(file));
-    } else {
-      setPhotoBlob(null);
-      setPhotoPreviewUrl(null);
+  const handleCapturePhoto = (files?: File[]) => {
+    if (!files?.length) return;
+    setSubmitError(null);
+    const availableSlots = 5 - evidencePhotos.length;
+    const acceptedFiles = files.filter((file) => file.type.startsWith('image/')).slice(0, availableSlots);
+    const additions = acceptedFiles.map((file) => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrls.current.add(previewUrl);
+      return { file, previewUrl, capturedAt: new Date().toISOString() };
+    });
+    if (files.some((file) => !file.type.startsWith('image/'))) {
+      setSubmitError('Only image files can be added as evidence.');
+    } else if (files.length > availableSlots) {
+      setSubmitError('You can attach up to 5 photos per report.');
     }
-    setPhotoCaptured(true);
+    if (additions.length) {
+      setEvidencePhotos((current) => [...current, ...additions]);
+      setSelectedEvidenceIndex(evidencePhotos.length + additions.length - 1);
+    }
   };
 
-  const handleRetakePhoto = () => {
-    setPhotoCaptured(false);
-    setPhotoBlob(null);
-    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
-    setPhotoPreviewUrl(null);
+  const handleRemovePhoto = (index: number) => {
+    const photo = evidencePhotos[index];
+    if (photo) {
+      URL.revokeObjectURL(photo.previewUrl);
+      previewUrls.current.delete(photo.previewUrl);
+    }
+    setEvidencePhotos((current) => current.filter((_, photoIndex) => photoIndex !== index));
+    setSelectedEvidenceIndex((current) => Math.max(0, current > index ? current - 1 : Math.min(current, evidencePhotos.length - 2)));
   };
 
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!reportLocation) {
-      setGpsError('Real GPS coordinates are required before submitting this report.');
+    if (!reportLocation?.gpsVerified || !reportLocation.wardId || !reportLocation.wardNumber || !reportLocation.ward) {
+      setGpsError('A fresh GPS fix inside a configured PostGIS ward boundary is required before submitting.');
+      return;
+    }
+    if (evidencePhotos.length < 3 || evidencePhotos.length > 5) {
+      setSubmitError('Please add between 3 and 5 evidence photos before submitting.');
       return;
     }
 
     setIsSubmitting(true);
+    setSubmitError(null);
+    setSubmissionWarning(null);
 
     const result = await reportService.createReport({
       issueType: selectedIssue,
@@ -139,7 +157,10 @@ export const CitizenReportPage: React.FC = () => {
       wardName: reportLocation.ward,
       city: reportLocation.city,
       address: reportLocation.address,
-      photoBlob,
+      wardId: reportLocation.wardId,
+      wardNumber: reportLocation.wardNumber,
+      gpsVerified: reportLocation.gpsVerified,
+      evidencePhotos: evidencePhotos.map(({ file, capturedAt }) => ({ file, capturedAt })),
     });
 
     setIsSubmitting(false);
@@ -147,8 +168,12 @@ export const CitizenReportPage: React.FC = () => {
     if (result.success && result.report) {
       setSubmittedReport(result.report);
       setCurrentStep(4);
-    } else {
+    } else if (result.report) {
+      setSubmittedReport(result.report);
+      setSubmissionWarning(result.error || 'The report was created, but some evidence could not be saved.');
       setCurrentStep(4);
+    } else {
+      setSubmitError(result.error || 'Unable to submit the report. Please try again.');
     }
   };
 
@@ -214,7 +239,7 @@ export const CitizenReportPage: React.FC = () => {
 
             {/* GPS Status Indicator */}
             <div className="shrink-0">
-              {reportLocation ? (
+              {reportLocation?.wardId && reportLocation.wardNumber ? (
                 <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
                   <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span className="truncate max-w-[160px]">{reportLocation.ward}</span>
@@ -229,7 +254,7 @@ export const CitizenReportPage: React.FC = () => {
                   isLoading={isRefreshingGps}
                   leftIcon={<Compass className="w-3.5 h-3.5 text-sky-600" />}
                 >
-                  Enable GPS Location
+                  {reportLocation ? 'Retry Ward Verification' : 'Enable GPS Location'}
                 </Button>
               )}
             </div>
@@ -302,14 +327,56 @@ export const CitizenReportPage: React.FC = () => {
 
           {/* Photo Preview & Camera Viewfinder Component */}
           <PhotoPreview
-            photoCaptured={photoCaptured}
-            photoUrl={photoPreviewUrl}
+            photoCaptured={evidencePhotos.length > 0}
+            photoUrl={selectedEvidence?.previewUrl}
             onCapture={handleCapturePhoto}
-            onRetake={handleRetakePhoto}
+            onRetake={() => handleRemovePhoto(selectedEvidenceIndex)}
             onContinue={() => setCurrentStep(3)}
+            canContinue={evidencePhotos.length >= 3}
             locationStampText={`📍 ${autoLocationText}`}
             timestampStampText={`🕐 ${autoTimestampText}`}
           />
+          {gpsError && <p role="alert" className="text-xs font-semibold text-rose-700">{gpsError}</p>}
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-700">Evidence photos</span>
+              <span className={`font-mono font-bold ${evidencePhotos.length >= 3 ? 'text-emerald-700' : 'text-sky-700'}`}>
+                {evidencePhotos.length}/5 photos · 3 required
+              </span>
+            </div>
+            {evidencePhotos.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {evidencePhotos.map((photo, index) => (
+                  <div
+                    key={`${photo.file.name}-${photo.capturedAt}`}
+                    className={`relative aspect-square rounded-xl overflow-hidden border-2 ${index === selectedEvidenceIndex ? 'border-sky-500' : 'border-slate-200'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEvidenceIndex(index)}
+                      className="w-full h-full cursor-pointer"
+                      aria-label={`Preview evidence photo ${index + 1}`}
+                    >
+                      <img src={photo.previewUrl} alt={`Evidence photo ${index + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(index)}
+                      className="absolute top-1 right-1 rounded-full bg-slate-950/80 text-white p-1 hover:bg-rose-600 cursor-pointer"
+                      aria-label={`Remove evidence photo ${index + 1}`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {evidencePhotos.length < 3 && (
+              <p className="text-[11px] text-amber-700">Add {3 - evidencePhotos.length} more photo{3 - evidencePhotos.length === 1 ? '' : 's'} to continue.</p>
+            )}
+            {submitError && <p role="alert" className="text-xs font-semibold text-rose-700">{submitError}</p>}
+          </div>
 
           <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-100 text-xs text-slate-600 space-y-1">
             <div className="flex items-center gap-1.5 font-bold text-sky-900">
@@ -317,7 +384,7 @@ export const CitizenReportPage: React.FC = () => {
               <span>Automatic Civic Metadata Stamp</span>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-600">
-              Upon capture, your device automatically applies a tamper-evident cryptographic watermark embedding verified ward coordinates and exact atomic server timestamp.
+              Each uploaded photo is permanently stamped with JalSetu, the PostGIS-detected ward, GPS coordinates, capture time, and report ID.
             </p>
           </div>
 
@@ -330,7 +397,7 @@ export const CitizenReportPage: React.FC = () => {
             >
               Back to Issue
             </Button>
-            {photoCaptured && (
+            {evidencePhotos.length >= 3 && (
               <Button
                 variant="civic"
                 size="md"
@@ -360,9 +427,9 @@ export const CitizenReportPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Left: Photo with Stamp */}
             <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-900 aspect-4/3 flex flex-col justify-end p-4 text-white relative">
-              {photoPreviewUrl && (
+              {selectedEvidence && (
                 <img
-                  src={photoPreviewUrl}
+                  src={selectedEvidence.previewUrl}
                   alt="Captured Evidence Preview"
                   className="absolute inset-0 w-full h-full object-cover"
                 />
@@ -370,7 +437,7 @@ export const CitizenReportPage: React.FC = () => {
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent z-10 pointer-events-none" />
               <div className="absolute top-3 left-3 z-20">
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-600 text-white">
-                  Photo Stamped
+                  Stamp applied on submission
                 </span>
               </div>
               <div className="relative z-20 text-xs space-y-1">
@@ -417,6 +484,9 @@ export const CitizenReportPage: React.FC = () => {
                       </span>
                     )}
                   </div>
+                  <p className="text-[11px] text-slate-600 mt-2">
+                    Ward: {reportLocation?.ward || 'Not verified'} · GPS: {reportLocation ? `${reportLocation.latitude.toFixed(6)}, ${reportLocation.longitude.toFixed(6)}` : 'Unavailable'}
+                  </p>
                 </div>
 
                 <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
@@ -523,38 +593,45 @@ export const CitizenReportPage: React.FC = () => {
               variant="civic"
               size="lg"
               isLoading={isSubmitting}
-              disabled={!reportLocation || isSubmitting}
+              disabled={!reportLocation?.gpsVerified || !reportLocation.wardId || !reportLocation.wardNumber || !reportLocation.ward || evidencePhotos.length < 3 || evidencePhotos.length > 5 || isSubmitting}
               rightIcon={<CheckCircle2 className="w-5 h-5" />}
             >
-              {!reportLocation ? 'GPS Required to Submit' : 'Submit Water Report'}
+              {!reportLocation?.gpsVerified || !reportLocation.wardId || !reportLocation.wardNumber || !reportLocation.ward
+                ? 'Verified GPS Ward Required'
+                : evidencePhotos.length < 3
+                  ? 'Add at Least 3 Photos'
+                  : 'Submit Water Report'}
             </Button>
           </div>
+          {submitError && <p role="alert" className="text-xs font-semibold text-rose-700 text-right">{submitError}</p>}
         </form>
       )}
 
       {/* STEP 4: Report Submitted Success Confirmation Screen */}
       {currentStep === 4 && (
         <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200/90 shadow-sm space-y-6 text-center">
-          <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
-            <CheckCircle2 className="w-10 h-10" />
+          <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-sm ${submissionWarning ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+            {submissionWarning ? <AlertTriangle className="w-10 h-10" /> : <CheckCircle2 className="w-10 h-10" />}
           </div>
 
           <div className="space-y-1.5 max-w-md mx-auto">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-              Submitted Successfully
+            <span className={`text-xs font-bold uppercase tracking-wider ${submissionWarning ? 'text-amber-700' : 'text-emerald-600'}`}>
+              {submissionWarning ? 'Report Created · Evidence Issue' : 'Submitted Successfully'}
             </span>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Report Registered with Municipal Control
+              {submissionWarning ? 'Report Registered with an Evidence Warning' : 'Report Registered with Municipal Control'}
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-              Thank you for helping protect Bihar&apos;s water infrastructure. A municipal desk engineer is reviewing the evidence for dispatch.
+              {submissionWarning
+                ? submissionWarning
+                : 'Thank you for helping protect Bihar\u2019s water infrastructure. A municipal desk engineer is reviewing the evidence for dispatch.'}
             </p>
           </div>
 
           {/* Ticket ID Box */}
           <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200">
             <span className="text-xs font-semibold text-slate-500">Report Reference:</span>
-            <span className="text-sm font-bold font-mono text-sky-700">{submittedReport?.id || 'JS-2026-W12-001'}</span>
+            <span className="text-sm font-bold font-mono text-sky-700">{submittedReport?.id || 'Unavailable'}</span>
           </div>
 
           {/* Visual Status Timeline (Submitted -> Location Verified -> Under Review -> Team Assigned -> Repair In Progress -> Resolved) */}
@@ -579,8 +656,14 @@ export const CitizenReportPage: React.FC = () => {
               size="md"
               onClick={() => {
                 setCurrentStep(1);
-                setPhotoCaptured(false);
                 setDescription('');
+                evidencePhotos.forEach((photo) => {
+                  URL.revokeObjectURL(photo.previewUrl);
+                  previewUrls.current.delete(photo.previewUrl);
+                });
+                setEvidencePhotos([]);
+                setSelectedEvidenceIndex(0);
+                setSubmitError(null);
               }}
               leftIcon={<RotateCcw className="w-4 h-4" />}
             >

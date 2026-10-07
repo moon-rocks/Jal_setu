@@ -25,6 +25,7 @@ import { useAuth } from '../../context/AuthContext';
 import { teamMemberService } from '../../services/teamMemberService';
 import { AssignedReportItem, WorkStatus, WorkUpdateItem } from '../../types/teamMember';
 import { MapContainer } from '../../components/common/MapContainer';
+import { ReportEvidencePhoto, reportService } from '../../services/reportService';
 
 export const TeamReportDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +35,8 @@ export const TeamReportDetailPage: React.FC = () => {
 
   const [report, setReport] = useState<AssignedReportItem | null>(null);
   const [updates, setUpdates] = useState<WorkUpdateItem[]>([]);
+  const [citizenEvidencePhotos, setCitizenEvidencePhotos] = useState<ReportEvidencePhoto[]>([]);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -53,11 +56,20 @@ export const TeamReportDetailPage: React.FC = () => {
       if (!id) return;
       setIsLoading(true);
       setErrorMsg(null);
+      setEvidenceError(null);
       const data = await teamMemberService.getAssignedReportById(id, memberId);
       if (data) {
         setReport(data);
-        const wUpdates = await teamMemberService.getWorkUpdates(data.id);
+        const [wUpdates, evidence] = await Promise.all([
+          teamMemberService.getWorkUpdates(data.id),
+          reportService.getEvidencePhotos(data.id).catch((error) => {
+            console.error('Unable to load citizen evidence photos:', error);
+            setEvidenceError(error instanceof Error ? error.message : 'Unable to load evidence photos.');
+            return [];
+          }),
+        ]);
         setUpdates(wUpdates);
+        setCitizenEvidencePhotos(evidence);
       } else {
         setErrorMsg('Report not found or not assigned to your account.');
       }
@@ -387,6 +399,42 @@ export const TeamReportDetailPage: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="p-5 sm:p-6 rounded-2xl bg-[#0E1A30] border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                <Camera className="w-4 h-4 text-emerald-400" />
+                <span>Citizen Evidence Photos ({citizenEvidencePhotos.length})</span>
+              </h2>
+              <span className="text-[10px] font-semibold text-slate-400">Stamped originals</span>
+            </div>
+            {evidenceError ? (
+              <p role="alert" className="text-xs text-rose-300">{evidenceError}</p>
+            ) : citizenEvidencePhotos.length ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {citizenEvidencePhotos.map((photo, index) => (
+                  <a
+                    key={photo.id}
+                    href={photo.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl border border-slate-800 overflow-hidden bg-slate-900 hover:border-amber-500/50 transition-colors"
+                  >
+                    <img src={photo.url} alt={`Citizen evidence photo ${index + 1}`} className="w-full aspect-square object-cover" />
+                    <div className="p-2 text-[10px] text-slate-400 space-y-0.5">
+                      <p className="font-bold text-slate-200">Photo {index + 1}</p>
+                      {photo.capturedAt && <p>{new Date(photo.capturedAt).toLocaleString()}</p>}
+                      {photo.latitude != null && photo.longitude != null && (
+                        <p className="font-mono">{photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}</p>
+                      )}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">No citizen evidence photos attached.</p>
+            )}
           </div>
 
           {/* Photographic Evidence Gallery */}

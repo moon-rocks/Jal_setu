@@ -26,7 +26,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { ReportStatus, ReportItem } from '../../types';
-import { reportService } from '../../services/reportService';
+import { ReportEvidencePhoto, reportService } from '../../services/reportService';
 import { teamService } from '../../services/teamService';
 import { auditService } from '../../services/auditService';
 import { teamMemberService } from '../../services/teamMemberService';
@@ -49,6 +49,8 @@ export const AdminReportDetailPage: React.FC = () => {
   const [aiData, setAiData] = useState<{ confidence?: number; summary?: string; recommendation?: string } | null>(null);
   const [timelineTimestamps, setTimelineTimestamps] = useState<Partial<Record<ReportStatus, string>>>({});
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
+  const [evidencePhotos, setEvidencePhotos] = useState<ReportEvidencePhoto[]>([]);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
 
   // Verification modal / feedback
   const [verificationFeedback, setVerificationFeedback] = useState('Work inspected and verified against municipal hydraulic specifications.');
@@ -57,13 +59,20 @@ export const AdminReportDetailPage: React.FC = () => {
   const fetchReport = async () => {
     if (!id) return;
     setIsLoading(true);
-    const [data, history, aiResult, members, assignedDetail] = await Promise.all([
+    setEvidenceError(null);
+    const [data, history, aiResult, members, assignedDetail, evidence] = await Promise.all([
       reportService.getReportById(id),
       reportService.getStatusHistory(id),
       reportService.getAiAnalysis(id),
       teamMemberService.getTeamMembers({ status: 'active' }),
       teamMemberService.getAssignedReportById(id),
+      reportService.getEvidencePhotos(id).catch((error) => {
+        console.error('Unable to load citizen evidence photos:', error);
+        setEvidenceError(error instanceof Error ? error.message : 'Unable to load evidence photos.');
+        return [];
+      }),
     ]);
+    setEvidencePhotos(evidence);
 
     if (data) {
       setReport(data);
@@ -297,6 +306,42 @@ export const AdminReportDetailPage: React.FC = () => {
                 <span>{accuracy == null ? 'Accuracy unavailable' : `Accuracy ±${accuracy}m`}</span>
               </div>
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Camera className="w-4 h-4 text-sky-600" />
+                Citizen Evidence Photos ({evidencePhotos.length})
+              </h2>
+              <span className="text-[10px] font-semibold text-slate-500">Stamped originals</span>
+            </div>
+            {evidenceError ? (
+              <p role="alert" className="text-xs text-rose-700">{evidenceError}</p>
+            ) : evidencePhotos.length ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {evidencePhotos.map((photo, index) => (
+                  <a
+                    key={photo.id}
+                    href={photo.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50 hover:border-sky-400 transition-colors"
+                  >
+                    <img src={photo.url} alt={`Citizen evidence photo ${index + 1}`} className="w-full aspect-square object-cover" />
+                    <div className="p-2 text-[10px] text-slate-600 space-y-0.5">
+                      <p className="font-bold text-slate-800">Photo {index + 1}</p>
+                      {photo.capturedAt && <p>{new Date(photo.capturedAt).toLocaleString()}</p>}
+                      {photo.latitude != null && photo.longitude != null && (
+                        <p className="font-mono">{photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}</p>
+                      )}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">No citizen evidence photos attached.</p>
+            )}
           </div>
 
           {/* Operational Map */}

@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { Camera, RefreshCw, Check, MapPin, Clock, ShieldCheck } from 'lucide-react';
+import { Camera, X, Check, MapPin, Clock, ShieldCheck } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 export interface PhotoPreviewProps {
   photoCaptured: boolean;
   photoUrl?: string | null;
-  onCapture: (file?: File) => void;
+  onCapture: (files?: File[]) => void;
   onRetake: () => void;
   onContinue: () => void;
+  canContinue?: boolean;
   locationStampText?: string;
   timestampStampText?: string;
   className?: string;
@@ -19,6 +20,7 @@ export const PhotoPreview: React.FC<PhotoPreviewProps> = ({
   onCapture,
   onRetake,
   onContinue,
+  canContinue = true,
   locationStampText = '[Location Automatically Captured on Submit]',
   timestampStampText = '[Date & Time Automatically Stamped]',
   className = '',
@@ -27,10 +29,9 @@ export const PhotoPreview: React.FC<PhotoPreviewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      onCapture(file);
-    }
+    const files = Array.from(e.target.files || []);
+    if (files.length) onCapture(files);
+    e.target.value = '';
   };
 
   const handleTriggerCamera = () => {
@@ -50,6 +51,7 @@ export const PhotoPreview: React.FC<PhotoPreviewProps> = ({
         accept="image/*"
         capture={activeFacingMode === 'back' ? 'environment' : 'user'}
         onChange={handleFileChange}
+        multiple
         className="hidden"
       />
 
@@ -119,7 +121,7 @@ export const PhotoPreview: React.FC<PhotoPreviewProps> = ({
             {/* Verified Authentic Civic Badge */}
             <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-sm z-10">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>JalSetu Verified Capture</span>
+              <span>Evidence Photo Preview</span>
             </div>
 
             {/* AUTOMATIC PHOTO STAMP OVERLAY */}
@@ -154,17 +156,27 @@ export const PhotoPreview: React.FC<PhotoPreviewProps> = ({
         ) : (
           <div className="flex flex-wrap items-center justify-center gap-3 w-full">
             <Button
+              variant="civic"
+              size="lg"
+              onClick={handleTriggerCamera}
+              leftIcon={<Camera className="w-5 h-5" />}
+              className="w-full sm:w-auto px-8"
+            >
+              Add Photos
+            </Button>
+            <Button
               variant="outline"
               size="md"
               onClick={onRetake}
-              leftIcon={<RefreshCw className="w-4 h-4" />}
+              leftIcon={<X className="w-4 h-4" />}
             >
-              Retake Photo
+              Remove Selected Photo
             </Button>
             <Button
               variant="primary"
               size="md"
               onClick={onContinue}
+              disabled={!canContinue}
               rightIcon={<Check className="w-4 h-4" />}
             >
               Continue with Photo

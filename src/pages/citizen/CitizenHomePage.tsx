@@ -194,7 +194,7 @@ export const CitizenHomePage: React.FC = () => {
       {/* Main Grid: My Location Card + Report Action Card */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Personal Location Map Card (7 cols) */}
-        <div className="lg:col-span-7 flex flex-col">
+        <div className="lg:col-span-7 flex min-w-0 flex-col">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
@@ -255,7 +255,7 @@ export const CitizenHomePage: React.FC = () => {
         </div>
 
         {/* Right: Report a Water Problem Big CTA & Awareness Card (5 cols) */}
-        <div className="lg:col-span-5 flex flex-col gap-4 justify-between">
+        <div className="lg:col-span-5 flex min-w-0 flex-col gap-4 justify-between">
           {/* Big Action Card */}
           <div
             onClick={() => navigate('/report')}

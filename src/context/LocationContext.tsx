@@ -278,6 +278,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       city: wardDef.city,
       address: wardDef.name,
       suburb: wardDef.name.split(' - ')[1] || wardDef.name,
+      gpsVerified: false,
     };
 
     console.log('[JalSetu GPS] Citizen manually selected municipal ward:', manualLoc);

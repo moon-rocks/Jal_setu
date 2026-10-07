@@ -139,7 +139,6 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         const wardInfo = await locationService.detectWard(
           lat,
           lng,
-          geo.suburb || geo.street || geo.displayName.split(',')[0],
           geo.city
         );
 
@@ -156,6 +155,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             ward: wardInfo.wardName,
             wardNumber: wardInfo.wardNumber,
             wardId: wardInfo.wardId,
+            gpsVerified: true,
             city: geo.city,
             address: geo.formattedShort,
             street: geo.street,
@@ -314,12 +314,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       pendingLocationRef.current = null;
     }
 
-    // Invalidate size once rendered in DOM
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 150);
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize({ pan: false });
+    });
+    resizeObserver.observe(mapContainerRef.current);
+    requestAnimationFrame(() => map.invalidateSize({ pan: false }));
 
     return () => {
+      resizeObserver.disconnect();
       if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
@@ -571,7 +573,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
   return (
     <div
-      className={`relative w-full rounded-2xl overflow-hidden border border-slate-200/90 bg-slate-100 shadow-xs flex flex-col ${heightClass} ${className}`}
+      className={`relative isolate w-full min-w-0 max-w-full rounded-2xl overflow-hidden border border-slate-200/90 bg-slate-100 shadow-xs ${heightClass} ${className}`}
     >
       {/* Top Header Overlay */}
       {(title || subtitle) && (
@@ -637,8 +639,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       {/* Real Interactive Leaflet Container */}
       <div
         ref={mapContainerRef}
-        className="w-full h-full min-h-full z-0 outline-none"
-        style={{ minHeight: '100%' }}
+        className="absolute inset-0 z-0 h-full w-full min-w-0 max-w-full outline-none"
       />
 
       {mode === 'admin' && (

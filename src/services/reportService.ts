@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { IssueType, PriorityLevel, ReportItem, ReportMapPoint, ReportStatus } from '../types';
+import { stampEvidencePhoto } from './evidencePhotoService';
 
 const buildApiUrl = (path: string) => {
   const configuredBase = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
@@ -30,8 +31,19 @@ export interface CreateReportDTO {
   wardName?: string;
   city?: string;
   address?: string;
-  photoBlob?: Blob | null;
+  wardId?: string;
+  wardNumber?: string;
+  gpsVerified?: boolean;
+  evidencePhotos?: { file: File; capturedAt: string }[];
   photoUrl?: string;
+}
+
+export interface ReportEvidencePhoto {
+  id: string;
+  url: string;
+  capturedAt?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 function isUuid(val: string): boolean {
@@ -138,6 +150,14 @@ export const reportService = {
 
   async createReport(dto: CreateReportDTO): Promise<{ success: boolean; report?: ReportItem; error?: string }> {
     if (!isSupabaseConfigured) return { success: false, error: 'Supabase is not configured.' };
+    const { gpsVerified, wardId, wardNumber, wardName } = dto;
+    if (!gpsVerified || !wardId || !wardNumber || !wardName) {
+      return { success: false, error: 'A GPS-verified location inside a configured PostGIS ward is required.' };
+    }
+    if (!dto.evidencePhotos || dto.evidencePhotos.length < 3 || dto.evidencePhotos.length > 5) {
+      return { success: false, error: 'Please attach between 3 and 5 evidence photos.' };
+    }
+    const evidencePhotos = dto.evidencePhotos;
     const reportNumber = `JS-${Math.floor(10000 + Math.random() * 90000)}`;
     let photoUrl = dto.photoUrl;
 
@@ -155,6 +175,7 @@ export const reportService = {
       return parsed;
     };
 
+    let createdReport: { id: string; report_number: string; [key: string]: unknown } | null = null;
     try {
       const user = await getAuthenticatedCitizenUser();
       if (!user) {
@@ -163,8 +184,19 @@ export const reportService = {
 
       const priority = dto.issueType === 'pipeline_leakage' || dto.issueType === 'no_water' ? 'high' : 'medium';
       const fullAddress = dto.address
-        ? `${dto.wardName ? `${dto.wardName} · ` : ''}${dto.address}`
+        ? `${wardName ? `${wardName} · ` : ''}${dto.address}`
         : null;
+      const stampedPhotos: Blob[] = [];
+      for (const photo of evidencePhotos) {
+        stampedPhotos.push(await stampEvidencePhoto(photo.file, {
+          wardNumber,
+          wardName,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          capturedAt: photo.capturedAt,
+          reportId: reportNumber,
+        }));
+      }
       const insertPayload: Record<string, unknown> = {
         report_number: reportNumber,
         citizen_id: user.id,
@@ -176,7 +208,8 @@ export const reportService = {
         latitude: dto.latitude,
         longitude: dto.longitude,
         accuracy: dto.accuracy,
-        ward_name: dto.wardName || null,
+        ward_id: wardId,
+        ward_name: wardName,
         city: dto.city || null,
         address: fullAddress,
         photo_url: dto.photoUrl || null,
@@ -184,33 +217,42 @@ export const reportService = {
 
       const { data, error } = await supabase.from('reports').insert(insertPayload).select().single();
       if (error || !data) return { success: false, error: error?.message || 'Unable to create report.' };
+      createdReport = data;
+      if (!data.ward_id || data.ward_id !== wardId || data.ward_name !== wardName) {
+        throw new Error('The submitted GPS point did not match the expected PostGIS ward. No evidence photos were uploaded.');
+      }
 
-      if (dto.photoBlob) {
-        try {
-          const extension = dto.photoBlob.type.split('/')[1] || 'jpg';
-          const uploaded = await supabase.storage.from('report-photos').upload(
-            `${data.id}/citizen/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`,
-            dto.photoBlob,
-            { contentType: dto.photoBlob.type || 'image/jpeg', upsert: false },
-          );
-          if (uploaded.error) throw uploaded.error;
-          const storagePath = uploaded.data.path;
-          const { error: photoError } = await supabase.from('report_photos').insert({
-            report_id: data.id,
-            storage_path: storagePath,
-            photo_type: 'evidence',
-            file_size: dto.photoBlob.size,
-            mime_type: dto.photoBlob.type || null,
-            latitude: dto.latitude,
-            longitude: dto.longitude,
-          });
-          if (photoError) throw photoError;
-          const { error: updatePhotoError } = await supabase.from('reports').update({ photo_url: storagePath }).eq('id', data.id);
-          if (updatePhotoError) throw updatePhotoError;
-          photoUrl = await this.getSignedPhotoUrl(storagePath);
-        } catch (photoError) {
-          console.warn('Report photo upload failed:', photoError);
-        }
+      const uploadedPhotoPaths: string[] = [];
+      for (const [index, photo] of evidencePhotos.entries()) {
+        const stampedPhoto = stampedPhotos[index];
+        const storagePath = `${data.id}/citizen/${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.jpg`;
+        const uploaded = await supabase.storage.from('report-photos').upload(
+          storagePath,
+          stampedPhoto,
+          { contentType: 'image/jpeg', upsert: false },
+        );
+        if (uploaded.error) throw new Error(`Evidence photo ${index + 1} upload failed: ${uploaded.error.message}`);
+        uploadedPhotoPaths.push(uploaded.data.path);
+
+        const { error: photoError } = await supabase.from('report_photos').insert({
+          report_id: data.id,
+          storage_path: uploaded.data.path,
+          photo_type: 'evidence',
+          file_size: stampedPhoto.size,
+          mime_type: 'image/jpeg',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          captured_at: photo.capturedAt,
+        });
+        if (photoError) throw new Error(`Evidence photo ${index + 1} record failed: ${photoError.message}`);
+      }
+
+      if (uploadedPhotoPaths.length) {
+        const { error: updatePhotoError } = await supabase.from('reports')
+          .update({ photo_url: uploadedPhotoPaths[0] })
+          .eq('id', data.id);
+        if (updatePhotoError) throw new Error(`Unable to link the first evidence photo: ${updatePhotoError.message}`);
+        photoUrl = await this.getSignedPhotoUrl(uploadedPhotoPaths[0]);
       }
 
       try {
@@ -247,9 +289,67 @@ export const reportService = {
 
       return { success: true, report: { ...(await this.mapRowToReport(data)), photoUrl } };
     } catch (error) {
-      console.warn('Supabase report insert failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unable to create report.' };
+      console.warn('Report submission or evidence processing failed:', error);
+      const message = error instanceof Error ? error.message : 'Unable to create report.';
+      if (createdReport) {
+        return {
+          success: false,
+          report: { ...(await this.mapRowToReport(createdReport)), photoUrl },
+          error: `Report ${createdReport.report_number} was created, but evidence processing failed: ${message} Do not submit it again.`,
+        };
+      }
+      return { success: false, error: message };
     }
+  },
+
+  async getEvidencePhotos(reportId: string): Promise<ReportEvidencePhoto[]> {
+    if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+
+    let reportUuid = reportId;
+    if (!isUuid(reportUuid)) {
+      const { data, error } = await supabase.from('reports')
+        .select('id')
+        .eq('report_number', reportId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return [];
+      reportUuid = data.id;
+    }
+
+    const { data, error } = await supabase.from('report_photos')
+      .select('id, storage_path, captured_at, latitude, longitude')
+      .eq('report_id', reportUuid)
+      .eq('photo_type', 'evidence')
+      .order('captured_at', { ascending: true });
+    if (error) throw error;
+
+    if (!data?.length) {
+      const { data: report, error: reportError } = await supabase.from('reports')
+        .select('photo_url, submitted_at, latitude, longitude')
+        .eq('id', reportUuid)
+        .maybeSingle();
+      if (reportError) throw reportError;
+      const url = await this.getSignedPhotoUrl(report?.photo_url);
+      return url ? [{
+        id: `legacy-${reportUuid}`,
+        url,
+        capturedAt: report?.submitted_at || undefined,
+        latitude: report?.latitude ?? undefined,
+        longitude: report?.longitude ?? undefined,
+      }] : [];
+    }
+
+    return Promise.all((data || []).map(async (photo) => {
+      const url = await this.getSignedPhotoUrl(photo.storage_path);
+      if (!url) throw new Error(`Unable to create a viewing link for evidence photo ${photo.id}.`);
+      return {
+        id: photo.id,
+        url,
+        capturedAt: photo.captured_at || undefined,
+        latitude: photo.latitude ?? undefined,
+        longitude: photo.longitude ?? undefined,
+      };
+    }));
   },
 
   async updateReportStatus(reportId: string, newStatus: ReportStatus, options?: {
