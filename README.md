@@ -96,6 +96,7 @@ Use a Node.js host such as Render, Railway, Fly.io, or a VM, then set the same e
 
 ```bash
 npm install
+npm run build
 npm start
 ```
 
