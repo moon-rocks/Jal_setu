@@ -33,9 +33,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (_req, res) => {
+const healthResponse = (_req: Request, res: Response) => {
   res.json({ ok: true });
-});
+};
+
+app.get(['/health', '/api/health'], healthResponse);
 
 const isPlaceholderValue = (value?: string) => !value || /example\.supabase\.co|your-project-id|placeholder|replace[-_ ]?me/i.test(value);
 const supabaseUrl = [process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL].find((value) => !isPlaceholderValue(value));
