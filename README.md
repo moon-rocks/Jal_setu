@@ -73,6 +73,14 @@ For the Vercel frontend build, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_K
 
 If your Express backend and React frontend are hosted on different origins, set `VITE_API_BASE_URL` to the backend URL, for example `https://jalsetu-api.example.com`. When the frontend and API share the same host, the app uses the current origin automatically.
 
+GitHub Pages hosts only the Vite static frontend; it does not run `server.ts`. The admin report deletion, team-member creation, and team-member deletion endpoints therefore require a separately deployed Express backend. For the GitHub Pages workflow, add these as repository **Variables** or **Secrets**:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_API_BASE_URL` — the public HTTPS URL of the deployed Express backend
+
+The backend must also have `SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `FRONTEND_ORIGIN` configured. Set `FRONTEND_ORIGIN` to the exact GitHub Pages origin, for example `https://moon-rocks.github.io` (include the repository path only in `VITE_API_BASE_URL`, not in `FRONTEND_ORIGIN`). Multiple frontend origins can be comma-separated. Do not put the service-role key in GitHub Pages variables or any `VITE_*` variable. After adding or changing these values, trigger a new deployment because Vite embeds them at build time. Without `VITE_API_BASE_URL`, browser requests fall back to the GitHub Pages origin and return 404 for `/api/admin/*`; without `FRONTEND_ORIGIN`, the browser blocks cross-origin API requests.
+
 ### 6. Run the Application
 
 ```bash

@@ -14,6 +14,25 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
+const allowedFrontendOrigins = (process.env.FRONTEND_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+app.use((req, res, next) => {
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && allowedFrontendOrigins.includes(requestOrigin.replace(/\/$/, ''))) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 const isPlaceholderValue = (value?: string) => !value || /example\.supabase\.co|your-project-id|placeholder|replace[-_ ]?me/i.test(value);
 const supabaseUrl = [process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL].find((value) => !isPlaceholderValue(value));
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
