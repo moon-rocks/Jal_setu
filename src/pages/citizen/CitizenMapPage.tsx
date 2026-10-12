@@ -125,7 +125,9 @@ export const CitizenMapPage: React.FC = () => {
       <MapContainer
         mode="citizen"
         title="Personal Location Beacon"
-        subtitle={location ? `${location.ward} · ${location.city}` : 'Live Browser GPS & GIS Jurisdiction'}
+        subtitle={location
+          ? `${location.wardNumber ? `Ward ${location.wardNumber}${location.ward ? ` · ${location.ward}` : ''}` : location.ward || 'Ward boundary unavailable'} · ${location.city || 'City unavailable'}`
+          : 'Live Browser GPS & GIS Jurisdiction'}
         detectedLocation={detectedLocation}
         onDetectLocation={handleLocationAction}
         onLocationChange={updateVerifiedLocation}
@@ -146,11 +148,13 @@ export const CitizenMapPage: React.FC = () => {
             </div>
             <div className="min-w-0">
               <p className="text-[10px] uppercase font-bold text-slate-400">PostGIS Detected Ward</p>
-              <p className="text-sm font-bold text-slate-900 truncate" title={location.ward}>
-                {location.ward}
+              <p className="text-sm font-bold text-slate-900 truncate" title={location.ward || 'Ward unavailable'}>
+                {location.wardNumber
+                  ? `Ward ${location.wardNumber}${location.ward ? ` · ${location.ward}` : ''}`
+                  : location.ward || 'Verified ward boundary unavailable'}
               </p>
-              <p className="text-[11px] text-slate-500 truncate" title={location.address}>
-                {location.address}
+              <p className="text-[11px] text-slate-500 truncate" title={location.city || 'City unavailable'}>
+                {[location.city || 'City unavailable', location.address].filter(Boolean).join(' · ')}
               </p>
             </div>
           </Card>

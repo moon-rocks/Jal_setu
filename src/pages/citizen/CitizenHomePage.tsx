@@ -15,6 +15,7 @@ import rainwaterHarvestingImg from '../../assets/images/rainwater_harvesting_179
 import cleanDrinkingTapImg from '../../assets/images/clean_drinking_tap_1790429332378.jpg';
 import { useLanguage } from '../../context/LanguageContext';
 import { useLocationContext } from '../../context/LocationContext';
+import { formatVerifiedLocationLabel } from '../../services/locationService';
 import { noticeService } from '../../services/noticeService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
 import { JalSetuProcessSection } from '../../components/common/JalSetuProcessSection';
@@ -173,7 +174,7 @@ export const CitizenHomePage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5 text-xs sm:text-sm lg:text-base text-sky-50 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]">
             <span className="inline-flex items-center gap-1.5 font-semibold bg-slate-950/60 px-3 py-1.5 lg:px-4 lg:py-2 rounded-xl backdrop-blur-md border border-white/25 shadow-sm text-xs sm:text-sm lg:text-base">
               <MapPin className="w-4 h-4 lg:w-5 lg:h-5 text-sky-400 shrink-0" />
-              {location ? `${location.ward}, ${location.city}` : 'Location not available'}
+              {location ? formatVerifiedLocationLabel(location) : 'Location not available'}
             </span>
             <span className="hidden sm:inline font-bold text-sky-300 text-sm lg:text-base" aria-hidden="true">·</span>
             <span className="font-semibold tracking-wide drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">

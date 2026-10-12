@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Dropdown } from '../ui/Dropdown';
 import { useLocationContext } from '../../context/LocationContext';
 import { useAuth } from '../../context/AuthContext';
+import { formatVerifiedLocationLabel } from '../../services/locationService';
 import {
   User,
   FileText,
@@ -28,7 +29,7 @@ export const CitizenProfileMenu: React.FC = () => {
   const { location } = useLocationContext();
   const { user, profile } = useAuth();
   const displayName = profile?.fullName || user?.email || 'Citizen';
-  const displayWard = profile?.wardName || (location ? `${location.wardNumber || location.ward}, ${location.city}` : 'Ward not assigned');
+  const displayWard = profile?.wardName || (location ? formatVerifiedLocationLabel(location) : 'Ward not assigned');
 
   const handleNavigate = (path: string) => {
     navigate(path);

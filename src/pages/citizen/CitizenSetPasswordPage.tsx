@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { JalSetuLogo } from '../../components/ui/JalSetuLogo';
 import { Button } from '../../components/ui/Button';
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { authService } from '../../services/authService';
 import { useAuth } from '../../context/AuthContext';
+import { locationService } from '../../services/locationService';
 
 export const CitizenSetPasswordPage: React.FC = () => {
   const navigate = useNavigate();
@@ -27,12 +28,26 @@ export const CitizenSetPasswordPage: React.FC = () => {
   const email = locationState?.email || '';
 
   const [fullName, setFullName] = useState('');
-  const [wardName, setWardName] = useState('Ward 12 - Pokhraira Central');
+  const [wardName, setWardName] = useState('');
+  const [wards, setWards] = useState<Awaited<ReturnType<typeof locationService.getWards>>>([]);
+  const [wardLoadError, setWardLoadError] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isResetMode) return;
+    let active = true;
+    locationService.getWards().then((availableWards) => {
+      if (active) setWards(availableWards);
+    }).catch((loadError) => {
+      if (!active) return;
+      setWardLoadError(loadError instanceof Error ? loadError.message : 'Unable to load verified municipal wards.');
+    });
+    return () => { active = false; };
+  }, [isResetMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +84,7 @@ export const CitizenSetPasswordPage: React.FC = () => {
       if (user && !isResetMode) {
         await authService.updateProfile(user.id, {
           fullName: fullName.trim(),
-          wardName,
+          ...(wardName ? { wardName } : {}),
         });
       }
 
@@ -135,25 +150,29 @@ export const CitizenSetPasswordPage: React.FC = () => {
                   />
                   <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 </div>
+                {wardLoadError && <p role="status" className="text-[11px] text-amber-700">{wardLoadError}</p>}
+                {!wardLoadError && wards.length === 0 && (
+                  <p className="text-[11px] text-slate-400">Verified ward data is not available yet. You can add your ward later.</p>
+                )}
               </div>
 
               {/* Ward */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">
-                  Residential Ward *
+                  Residential Ward
                 </label>
                 <div className="relative">
                   <select
                     value={wardName}
                     onChange={(e) => setWardName(e.target.value)}
+                    required={wards.length > 0}
                     className="w-full bg-slate-50 text-slate-900 text-sm rounded-xl border border-slate-200 py-2.5 pl-10 pr-3.5 focus:outline-none focus:border-sky-500 cursor-pointer"
                   >
-                    <option value="Ward 12 - Pokhraira Central">Ward 12 - Pokhraira Central</option>
-                    <option value="Ward 8 - Saraiyaganj North">Ward 8 - Saraiyaganj North</option>
-                    <option value="Ward 4 - Brahampura Market">Ward 4 - Brahampura Market</option>
-                    <option value="Ward 9 - Sutapatti Commerce">Ward 9 - Sutapatti Commerce</option>
-                    <option value="Ward 11 - Mithanpura Sector">Ward 11 - Mithanpura Sector</option>
-                    <option value="Ward 14 - Kazi Mohammadpur">Ward 14 - Kazi Mohammadpur</option>
+                    <option value="">Select a verified ward</option>
+                    {wards.map((ward) => {
+                      const value = `Ward ${ward.wardNumber} - ${ward.name}`;
+                      return <option key={ward.id} value={value}>{value} ({ward.city})</option>;
+                    })}
                   </select>
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 </div>

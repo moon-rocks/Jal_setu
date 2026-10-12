@@ -129,6 +129,19 @@ export const AdminTeamMembersPage: React.FC = () => {
     fetchMembers();
   };
 
+  const handleDeleteMember = async (member: TeamMemberProfile) => {
+    if (!window.confirm(`Permanently delete ${member.name}'s team account, assignments, profile, and login? This cannot be undone.`)) return;
+    setPageError(null);
+    const result = await teamMemberService.deleteTeamMember(member.id);
+    if (!result.success) {
+      setPageError(result.error || `Unable to delete ${member.name}.`);
+      return;
+    }
+    setActionSuccess(`Team member "${member.name}" was permanently deleted.`);
+    setTimeout(() => setActionSuccess(null), 4000);
+    fetchMembers();
+  };
+
   const handleResetPassword = async (email: string, id: string) => {
     const confirmed = window.confirm(`Reset temporary password for ${email}? A secure temporary password will be provisioned.`);
     if (!confirmed) return;
@@ -429,6 +442,15 @@ export const AdminTeamMembersPage: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                           )}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteMember(member)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Delete Account Permanently"
+                          aria-label={`Delete ${member.name} permanently`}
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-600" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -571,7 +593,14 @@ export const AdminTeamMembersPage: React.FC = () => {
                       value={newMemberForm.ward}
                       onChange={(e) => {
                         const ward = municipalWards.find((item) => item.wardNumber === e.target.value);
-                        setNewMemberForm({ ...newMemberForm, ward: e.target.value, assignedArea: ward?.name || '' });
+                        const wardNumber = e.target.value;
+                        setNewMemberForm({
+                          ...newMemberForm,
+                          ward: wardNumber,
+                          // Prototype ward options have no fabricated name.
+                          // Use the selected official number as the required area label.
+                          assignedArea: ward?.name?.trim() || `Ward ${wardNumber}`,
+                        });
                       }}
                       className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:border-sky-500"
                     >

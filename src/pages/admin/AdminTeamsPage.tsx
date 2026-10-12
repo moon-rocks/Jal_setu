@@ -34,6 +34,7 @@ export const AdminTeamsPage: React.FC = () => {
   const [reportsList, setReportsList] = useState<ReportItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [formError, setFormError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Add team form states
@@ -73,7 +74,15 @@ export const AdminTeamsPage: React.FC = () => {
   });
 
   const handleCreateTeamSubmit = async () => {
-    if (!newTeamName.trim() || newMembersCount < 0) return;
+    setFormError('');
+    if (!newTeamName.trim()) {
+      setFormError('Enter a team name.');
+      return;
+    }
+    if (newMembersCount < 1) {
+      setFormError('Assign at least one technician.');
+      return;
+    }
     setIsLoading(true);
     const wardsArr = newWards.split(',').map((w) => w.trim());
     const result = await teamService.createTeam({
@@ -82,7 +91,7 @@ export const AdminTeamsPage: React.FC = () => {
       membersCount: newMembersCount,
     });
     if (!result.success) {
-      setErrorMessage(result.error || 'Unable to create the field team. Check your connection and permissions.');
+      setFormError(result.error || 'Unable to create the field team. Check your connection and permissions.');
       setIsLoading(false);
       return;
     }
@@ -332,7 +341,10 @@ export const AdminTeamsPage: React.FC = () => {
       {/* Add Team Modal */}
       <Modal
         isOpen={isAddTeamModalOpen}
-        onClose={() => setIsAddTeamModalOpen(false)}
+        onClose={() => {
+          setIsAddTeamModalOpen(false);
+          setFormError('');
+        }}
         title="Create New Municipal Field Team"
         description="Provision a rapid-response repair crew and assign primary municipal ward jurisdictions."
       >
@@ -352,6 +364,14 @@ export const AdminTeamsPage: React.FC = () => {
             value={newWards}
             onChange={(e) => setNewWards(e.target.value)}
           />
+          <p className="text-[11px] text-slate-500">
+            Enter numbers from 1 to 49, for example: Ward 3, Ward 4. These are manual prototype assignments until verified boundaries are imported.
+          </p>
+          {formError && (
+            <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              {formError}
+            </p>
+          )}
 
           <div className="space-y-1 text-left">
             <label className="text-xs font-semibold text-slate-700">
@@ -371,7 +391,10 @@ export const AdminTeamsPage: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setIsAddTeamModalOpen(false)}
+              onClick={() => {
+                setIsAddTeamModalOpen(false);
+                setFormError('');
+              }}
             >
               Cancel
             </Button>

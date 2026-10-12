@@ -1,5 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
+export type WardLookupStatus = 'matched' | 'geocoder-matched' | 'manual-selected' | 'boundary-not-found' | 'lookup-unavailable';
+
 export interface RealLocationData {
   latitude: number;
   longitude: number;
@@ -11,17 +13,77 @@ export interface RealLocationData {
   gpsVerified?: boolean;
   city: string;
   address: string; // Human-readable address
+  wardLookupStatus?: WardLookupStatus;
+  wardLookupError?: string;
+  wardLookupSource?: 'postgis-boundary' | 'nominatim' | 'unavailable';
   street?: string;
   suburb?: string;
   postcode?: string;
 }
 
+export const formatVerifiedLocationLabel = (
+  location: Pick<RealLocationData, 'ward' | 'wardNumber' | 'city' | 'wardLookupStatus'>
+): string => {
+  const verificationLabel = location.wardLookupStatus === 'manual-selected'
+    ? ' (manual)'
+    : location.wardLookupStatus === 'geocoder-matched'
+      ? ' (geocoder)'
+      : '';
+  const wardLabel = location.wardNumber
+    ? `Ward ${location.wardNumber}${location.ward ? ` · ${location.ward}` : ''}`
+    : location.ward || 'Ward unavailable';
+  return `${wardLabel}${verificationLabel}, ${location.city || 'City unavailable'}`;
+};
+
+interface ReverseGeocodeResult {
+  displayName: string;
+  street?: string;
+  suburb?: string;
+  city?: string;
+  state?: string;
+  postcode?: string;
+  wardNumber?: string;
+  wardName?: string;
+  formattedShort: string;
+}
+
+const reverseGeocodeCache = new Map<string, Promise<ReverseGeocodeResult>>();
+let lastNominatimRequestAt = 0;
+
+const coordinateLabel = (latitude: number, longitude: number) =>
+  `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+const parseGeocoderWard = (value: unknown): { wardNumber?: string; wardName: string } | undefined => {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const wardName = value.trim();
+  const wardNumberMatch = wardName.match(/\bward\s*(?:no\.?|number)?\s*[-:#]?\s*(\d+)\b/i);
+  return {
+    wardNumber: wardNumberMatch?.[1],
+    wardName,
+  };
+};
+
+const prototypeWardOptions = () => Array.from({ length: 49 }, (_, index) => {
+  const wardNumber = String(index + 1);
+  return {
+    id: `sec-muzaffarpur-ward-${wardNumber}`,
+    wardNumber,
+    name: '',
+    city: 'Muzaffarpur',
+    lat: 0,
+    lon: 0,
+  };
+});
+
 export const locationService = {
   async getWards(): Promise<{ id: string; wardNumber: string; name: string; city: string; lat: number; lon: number }[]> {
-    if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+    if (!isSupabaseConfigured) return prototypeWardOptions();
     const { data, error } = await supabase.rpc('get_ward_centers');
-    if (error) throw error;
-    return ((data || []) as {
+    if (error) {
+      console.warn('[JalSetu GPS] Ward centers unavailable; using official-numbered manual prototype options.', error);
+      return prototypeWardOptions();
+    }
+    const wards = ((data || []) as {
       id: string;
       ward_number: string;
       ward_name: string;
@@ -36,6 +98,9 @@ export const locationService = {
       lat: ward.latitude,
       lon: ward.longitude,
     }));
+    if (wards.length > 0) return wards;
+
+    return prototypeWardOptions();
   },
   /**
    * Checks the current browser geolocation permission status safely with verbose diagnostics.
@@ -112,15 +177,7 @@ export const locationService = {
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          console.log('%c[JalSetu GPS] Location successfully acquired!', 'color: #10b981; font-weight: bold;', {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracyMeters: position.coords.accuracy,
-            altitude: position.coords.altitude,
-            heading: position.coords.heading,
-            speed: position.coords.speed,
-            timestamp: new Date(position.timestamp).toISOString(),
-          });
+          console.log('%c[JalSetu GPS] Device location acquired.', 'color: #10b981; font-weight: bold;');
           console.groupEnd();
           resolve(position);
         },
@@ -148,12 +205,7 @@ export const locationService = {
 
             navigator.geolocation.getCurrentPosition(
               (fallbackPosition) => {
-                console.log('%c[JalSetu GPS] Fallback location acquired successfully!', 'color: #10b981; font-weight: bold;', {
-                  latitude: fallbackPosition.coords.latitude,
-                  longitude: fallbackPosition.coords.longitude,
-                  accuracyMeters: fallbackPosition.coords.accuracy,
-                  timestamp: new Date(fallbackPosition.timestamp).toISOString(),
-                });
+                console.log('%c[JalSetu GPS] Fallback device location acquired.', 'color: #10b981; font-weight: bold;');
                 console.groupEnd();
                 resolve(fallbackPosition);
               },
@@ -215,69 +267,75 @@ export const locationService = {
   async reverseGeocode(
     latitude: number,
     longitude: number
-  ): Promise<{
-    displayName: string;
-    street?: string;
-    suburb?: string;
-    city: string;
-    state?: string;
-    postcode?: string;
-    formattedShort: string;
-  }> {
-    try {
+  ): Promise<ReverseGeocodeResult> {
+    const cacheKey = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+    const cachedResult = reverseGeocodeCache.get(cacheKey);
+    if (cachedResult) return cachedResult;
+
+    const request = (async (): Promise<ReverseGeocodeResult> => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`;
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'JalSetu-WaterPlatform/1.0',
-        },
-        signal: controller.signal,
-      });
+      try {
+        const delay = Math.max(0, 1000 - (Date.now() - lastNominatimRequestAt));
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        lastNominatimRequestAt = Date.now();
 
-      clearTimeout(timeoutId);
+        const url = new URL('https://nominatim.openstreetmap.org/reverse');
+        url.search = new URLSearchParams({
+          format: 'jsonv2',
+          lat: String(latitude),
+          lon: String(longitude),
+          zoom: '18',
+          addressdetails: '1',
+        }).toString();
+        const response = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Nominatim reverse geocoding failed with HTTP ${response.status}.`);
+        }
 
-      if (response.ok) {
         const data = await response.json();
         const addr = data.address || {};
-
         const street = addr.road || addr.pedestrian || addr.street || addr.lane || addr.path;
         const suburb = addr.suburb || addr.neighbourhood || addr.residential || addr.quarter || addr.subdistrict || addr.city_district;
-        const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || addr.state_district || 'Current Location';
-        const state = addr.state || '';
+        // Do not use district/county as the city: it can incorrectly turn a
+        // municipal lookup into a district-level result.
+        const city = addr.city || addr.town || addr.municipality || addr.village || addr.borough;
+        const geocoderWard = parseGeocoderWard(addr.ward);
+        const state = addr.state;
         const postcode = addr.postcode;
-
-        // Build human-friendly short address
-        const parts = [street, suburb, city].filter(Boolean);
-        const formattedShort =
-          parts.length > 0
-            ? parts.join(', ')
-            : data.display_name
-            ? data.display_name.split(',').slice(0, 3).join(', ')
-            : `${latitude.toFixed(4)}°N, ${longitude.toFixed(4)}°E`;
-
+        const displayName = typeof data.display_name === 'string' ? data.display_name : '';
+        const formattedShort = [street, suburb, city].filter(Boolean).join(', ')
+          || displayName
+          || `GPS coordinates: ${coordinateLabel(latitude, longitude)}`;
         return {
-          displayName: data.display_name || formattedShort,
+          displayName: displayName || formattedShort,
           street,
           suburb,
           city,
           state,
           postcode,
+          wardNumber: geocoderWard?.wardNumber,
+          wardName: geocoderWard?.wardName,
           formattedShort,
         };
+      } finally {
+        clearTimeout(timeoutId);
       }
-    } catch (err) {
-      console.warn('Reverse geocoding network fallback:', err);
-    }
+    })();
+    reverseGeocodeCache.set(cacheKey, request);
 
-    // Fallback based on raw coordinates if network is delayed
-    return {
-      displayName: `GPS (${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°)`,
-      city: 'Current Location',
-      formattedShort: `GPS: ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`,
-    };
+    try {
+      return await request;
+    } catch (error) {
+      reverseGeocodeCache.delete(cacheKey);
+      console.warn('[JalSetu GPS] Reverse geocoding unavailable; showing coordinates without guessing a city.', error);
+      const coordinates = `GPS coordinates: ${coordinateLabel(latitude, longitude)}`;
+      return { displayName: coordinates, formattedShort: coordinates };
+    }
   },
 
   /**
@@ -288,36 +346,101 @@ export const locationService = {
   async detectWard(
     latitude: number,
     longitude: number,
-    cityName?: string
+    cityName?: string,
+    geocoderWard?: Pick<ReverseGeocodeResult, 'wardNumber' | 'wardName'>
   ): Promise<{
     wardId?: string;
     wardNumber: string;
     wardName: string;
     city: string;
+    status: WardLookupStatus;
   }> {
-    // 1. Try Supabase PostGIS RPC if available
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase.rpc('get_ward_by_coordinates', {
-        lat: latitude,
-        lon: longitude,
-      });
-      if (error) throw new Error(`PostGIS ward lookup failed: ${error.message}`);
-
-      if (data && data.length > 0 && data[0]?.ward_name) {
-        return {
-          wardId: data[0].ward_id,
-          wardNumber: data[0].ward_number || '',
-          wardName: data[0].ward_name,
-          city: data[0].city || cityName || 'Municipal Jurisdiction',
-        };
-      }
+    if (!isSupabaseConfigured) {
+      return { wardNumber: '', wardName: '', city: cityName || '', status: 'lookup-unavailable' };
     }
 
-    const effectiveCity = cityName || 'Current Location';
+    const { data, error } = await supabase.rpc('get_ward_by_coordinates', {
+      lat: latitude,
+      lon: longitude,
+    });
+    if (error) {
+      throw new Error(`PostGIS ward lookup failed: ${error.message}`);
+    }
+
+    const ward = data?.find((entry: { ward_id?: string; ward_name?: string; ward_number?: string; city?: string }) =>
+      entry?.ward_id && entry?.ward_number && entry?.ward_name && entry?.city
+    );
+    if (!ward) {
+      if (geocoderWard?.wardName) {
+        return {
+          wardNumber: geocoderWard.wardNumber || '',
+          wardName: geocoderWard.wardName,
+          city: cityName || '',
+          status: 'geocoder-matched',
+        };
+      }
+      return { wardNumber: '', wardName: '', city: cityName || '', status: 'boundary-not-found' };
+    }
+
     return {
-      wardNumber: '',
-      wardName: '',
-      city: effectiveCity,
+      wardId: ward.ward_id,
+      wardNumber: ward.ward_number,
+      wardName: ward.ward_name,
+      city: ward.city,
+      status: 'matched',
+    };
+  },
+
+  async resolveCoordinates(
+    latitude: number,
+    longitude: number,
+    accuracy: number,
+    timestamp = new Date().toISOString()
+  ): Promise<RealLocationData> {
+    if (
+      !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    ) {
+      throw new Error('GPS returned invalid latitude or longitude coordinates.');
+    }
+
+    const geocode = await this.reverseGeocode(latitude, longitude);
+    let wardData: Awaited<ReturnType<typeof this.detectWard>>;
+    let wardLookupError: string | undefined;
+    try {
+      wardData = await this.detectWard(latitude, longitude, geocode.city, geocode);
+    } catch (error) {
+      wardLookupError = error instanceof Error ? error.message : 'PostGIS ward lookup failed.';
+      console.error('[JalSetu GPS] Coordinates acquired but PostGIS ward lookup failed.', error);
+      wardData = {
+        wardNumber: '',
+        wardName: '',
+        city: geocode.city || '',
+        status: 'lookup-unavailable',
+      };
+    }
+
+    return {
+      latitude,
+      longitude,
+      accuracy: Math.round(accuracy),
+      timestamp,
+      ward: wardData.wardName,
+      wardNumber: wardData.wardNumber,
+      wardId: wardData.wardId,
+      gpsVerified: true,
+      city: wardData.status === 'matched' ? wardData.city : geocode.city || '',
+      address: geocode.formattedShort,
+      wardLookupStatus: wardData.status,
+      wardLookupError,
+      wardLookupSource: wardData.status === 'matched'
+        ? 'postgis-boundary'
+        : wardData.status === 'geocoder-matched'
+          ? 'nominatim'
+          : 'unavailable',
+      street: geocode.street,
+      suburb: geocode.suburb,
+      postcode: geocode.postcode,
     };
   },
 
@@ -334,40 +457,10 @@ export const locationService = {
     const { latitude, longitude, accuracy } = position.coords;
     const timestamp = new Date(position.timestamp).toISOString();
 
-    console.log('[JalSetu GPS] Step 1: Raw Coordinates ->', {
-      latitude,
-      longitude,
-      accuracyMargin: `±${Math.round(accuracy || 0)}m`,
-      timestamp,
-    });
+    console.log('[JalSetu GPS] Step 2: Resolving city via Nominatim and ward via PostGIS...');
+    const completeResult = await this.resolveCoordinates(latitude, longitude, accuracy || 0, timestamp);
 
-    // 1. Reverse Geocode for Human-readable location
-    console.log('[JalSetu GPS] Step 2: Reverse Geocoding via OpenStreetMap Nominatim...');
-    const geocode = await this.reverseGeocode(latitude, longitude);
-    console.log('[JalSetu GPS] Step 2: Reverse Geocode result ->', geocode.formattedShort);
-
-    // 2. PostGIS Ward Detection
-    console.log('[JalSetu GPS] Step 3: Determining Municipal Ward...');
-    const wardData = await this.detectWard(latitude, longitude, geocode.city);
-    console.log('[JalSetu GPS] Step 3: Ward detected ->', wardData.wardName);
-
-    const completeResult: RealLocationData = {
-      latitude,
-      longitude,
-      accuracy: Math.round(accuracy || 8),
-      timestamp,
-      ward: wardData.wardName,
-      wardNumber: wardData.wardNumber,
-      wardId: wardData.wardId,
-      gpsVerified: true,
-      city: geocode.city || wardData.city,
-      address: geocode.formattedShort,
-      street: geocode.street,
-      suburb: geocode.suburb,
-      postcode: geocode.postcode,
-    };
-
-    console.log('%c[JalSetu GPS] Pipeline Complete! Final verified location object:', 'color: #10b981; font-weight: bold;', completeResult);
+    console.log('%c[JalSetu GPS] Location pipeline complete.', 'color: #10b981; font-weight: bold;');
     console.groupEnd();
 
     return completeResult;

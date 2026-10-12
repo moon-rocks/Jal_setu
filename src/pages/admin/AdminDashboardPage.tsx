@@ -96,6 +96,10 @@ export const AdminDashboardPage: React.FC = () => {
   const dailyReports = metrics?.dailyReports || [];
   const maxDailyReports = Math.max(1, ...dailyReports.map((item) => item.count));
   const issueBreakdown = Object.entries(metrics?.issueBreakdown || {}).sort((a, b) => b[1] - a[1]);
+  const reportCities = Array.from(new Set(
+    complaintLocations.map((report) => report.location.city.trim()).filter(Boolean)
+  )).sort();
+  const reportCitySummary = reportCities.length > 0 ? reportCities.join(', ') : 'city unavailable';
 
   const handleApproveReport = async (reportId: string) => {
     await reportService.updateReportStatus(reportId, 'location_verified');
@@ -125,7 +129,7 @@ export const AdminDashboardPage: React.FC = () => {
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Monitor, Manage and Resolve Water Issues for a Better Muzaffarpur.
+            Monitor, manage, and resolve water issues across your municipal service area.
           </p>
         </div>
 
@@ -182,12 +186,12 @@ export const AdminDashboardPage: React.FC = () => {
 
       {/* Main Operations Grid: Live Map + Pending Reports + AI Verification */}
       <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-12">
-        {/* Left: Live Reports Map (Muzaffarpur) (6 cols) */}
+        {/* Left: Live Reports Map (6 cols) */}
         <div className="min-w-0 space-y-3 2xl:col-span-6">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
               <span>Live Reports Map</span>
-              <span className="text-slate-400 font-normal text-xs">(Muzaffarpur)</span>
+              <span className="text-slate-400 font-normal text-xs">({reportCitySummary})</span>
             </h3>
 
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -208,9 +212,10 @@ export const AdminDashboardPage: React.FC = () => {
           <MapContainer
             mode="admin"
             title="GIS Ward Jurisdiction"
-            subtitle={`${complaintLocations.length} complaint locations across Muzaffarpur`}
+            subtitle={`${complaintLocations.length} complaint locations · ${reportCitySummary}`}
             complaints={complaintLocations}
             emptyMessage="No complaint locations to display."
+            showGpsControl
             heightClass="h-[280px] min-[480px]:h-[340px] sm:h-[400px]"
             className="min-w-0 w-full"
           />

@@ -59,7 +59,7 @@ export const LocationContext = createContext<LocationContextType>({
   clearError: () => {},
 });
 
-const STORAGE_KEY = 'jalsetu_verified_location';
+const STORAGE_KEY = 'jalsetu_verified_location_v2';
 
 export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [location, setLocation] = useState<RealLocationData | null>(() => {
@@ -70,7 +70,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const parsed = JSON.parse(cached);
           // Safety check: ensure no legacy hardcoded coordinates are retained
           if (parsed && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
-            console.log('[JalSetu GPS] Restored previously verified session location:', parsed.ward, `${parsed.latitude}, ${parsed.longitude}`);
+            console.log('[JalSetu GPS] Restored a verified location from this session.');
             return parsed;
           }
         }
@@ -266,6 +266,33 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const wardDef = municipalWards.find((ward) =>
       ward.wardNumber.toLowerCase() === wardIdentifier.toLowerCase() || ward.name.toLowerCase() === wardIdentifier.toLowerCase()
     );
+    if ((!wardDef || wardDef.id.startsWith('sec-muzaffarpur-ward-'))
+      && /^\d+$/.test(wardIdentifier.trim())
+      && Number(wardIdentifier) >= 1
+      && Number(wardIdentifier) <= 49) {
+      const wardNumber = wardIdentifier.trim();
+      const manualLoc: RealLocationData = {
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        accuracy: location?.accuracy ?? 0,
+        timestamp: new Date().toISOString(),
+        ward: '',
+        wardNumber,
+        city: location?.city || 'Muzaffarpur',
+        address: location?.address || location?.city || 'Muzaffarpur',
+        gpsVerified: Boolean(location?.gpsVerified),
+        wardLookupStatus: 'manual-selected',
+        wardLookupSource: 'unavailable',
+      };
+      setLocation(manualLoc);
+      setError(null);
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(manualLoc));
+      } catch {
+        // storage quota fallback
+      }
+      return manualLoc;
+    }
     if (!wardDef) return null;
 
     const manualLoc: RealLocationData = {
@@ -279,9 +306,11 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       address: wardDef.name,
       suburb: wardDef.name.split(' - ')[1] || wardDef.name,
       gpsVerified: false,
+      wardLookupStatus: 'manual-selected',
+      wardLookupSource: 'unavailable',
     };
 
-    console.log('[JalSetu GPS] Citizen manually selected municipal ward:', manualLoc);
+    console.log('[JalSetu GPS] Citizen selected a configured municipal ward manually.');
     setLocation(manualLoc);
     setError(null);
     setIsDeniedModalOpen(false);

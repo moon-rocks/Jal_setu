@@ -261,6 +261,26 @@ export const teamMemberService = {
     return true;
   },
 
+  async deleteTeamMember(id: string): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured) return { success: false, error: 'Supabase is not configured.' };
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      const response = await fetch(buildApiUrl(`/api/admin/team-members/${encodeURIComponent(id)}`), {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+      });
+      const result = await readJsonResponse<{ success?: boolean; error?: string }>(response);
+      return response.ok && result.data?.success
+        ? { success: true }
+        : { success: false, error: result.error || result.data?.error || 'Unable to delete team member.' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unable to reach the deletion service.' };
+    }
+  },
+
   async resetPassword(email: string, memberId: string): Promise<{ success: boolean; error?: string }> {
     if (!isSupabaseConfigured) return { success: false, error: 'Supabase is not configured.' };
     try {

@@ -37,6 +37,7 @@ export interface MapContainerProps {
   permissionStatus?: 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
   onOpenTroubleshooting?: () => void;
   onSelectManualWard?: (ward: string) => void;
+  showGpsControl?: boolean;
   className?: string;
   heightClass?: string;
   emptyMessage?: string;
@@ -80,6 +81,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   permissionStatus,
   onOpenTroubleshooting,
   onSelectManualWard,
+  showGpsControl = false,
   className = '',
   heightClass = 'h-[360px] sm:h-[420px]',
   emptyMessage,
@@ -99,6 +101,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const locationDetailsRef = useRef({
     ward: detectedLocation?.ward,
     address: detectedLocation?.address,
+    city: detectedLocation?.city,
   });
 
   useEffect(() => {
@@ -113,6 +116,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     timestamp?: string;
   } | null>(null);
   const [isLocatingInternal, setIsLocatingInternal] = useState(false);
+  const [adminGpsLocation, setAdminGpsLocation] = useState<RealLocationData | null>(null);
+  const [adminGpsError, setAdminGpsError] = useState<string | null>(null);
 
   // Derived ward and address from actual coordinates
   const [derivedWard, setDerivedWard] = useState<string | null>(detectedLocation?.ward || null);
@@ -123,8 +128,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     locationDetailsRef.current = {
       ward: derivedWard || detectedLocation?.ward,
       address: derivedAddress || detectedLocation?.address,
+      city: derivedCity || detectedLocation?.city,
     };
-  }, [derivedWard, derivedAddress, detectedLocation?.ward, detectedLocation?.address]);
+  }, [derivedWard, derivedAddress, derivedCity, detectedLocation?.ward, detectedLocation?.address, detectedLocation?.city]);
 
   // Active coordinates
   const activeLat = liveLocation?.lat ?? detectedLocation?.latitude;
@@ -135,43 +141,24 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const resolveLocationDetails = useCallback(
     async (lat: number, lng: number, acc: number) => {
       try {
-        const geo = await locationService.reverseGeocode(lat, lng);
-        const wardInfo = await locationService.detectWard(
-          lat,
-          lng,
-          geo.city
-        );
-
-        setDerivedAddress(geo.formattedShort);
-        setDerivedCity(geo.city);
-        setDerivedWard(wardInfo.wardName);
-
-        if (onLocationChangeRef.current) {
-          onLocationChangeRef.current({
-            latitude: lat,
-            longitude: lng,
-            accuracy: Math.round(acc),
-            timestamp: new Date().toISOString(),
-            ward: wardInfo.wardName,
-            wardNumber: wardInfo.wardNumber,
-            wardId: wardInfo.wardId,
-            gpsVerified: true,
-            city: geo.city,
-            address: geo.formattedShort,
-            street: geo.street,
-            suburb: geo.suburb,
-            postcode: geo.postcode,
-          });
-        }
+        const resolvedLocation = await locationService.resolveCoordinates(lat, lng, acc);
+        setDerivedAddress(resolvedLocation.address);
+        setDerivedCity(resolvedLocation.city);
+        setDerivedWard(resolvedLocation.ward);
+        onLocationChangeRef.current?.(resolvedLocation);
       } catch (err) {
-        console.warn('[JalSetu Map] Could not reverse geocode coordinates:', err);
+        console.warn('[JalSetu Map] Could not resolve GPS location details:', err);
       }
     },
     []
   );
 
   const createLocationMarkerIcon = () => {
-    const markerLabel = mode === 'citizen' ? 'You are here' : 'Reported location';
+    const markerLabel = mode === 'citizen'
+      ? 'You are here'
+      : mode === 'admin'
+        ? 'My GPS location'
+        : 'Reported location';
     return L.divIcon({
       className: 'custom-you-are-here-marker',
       html: `
@@ -213,8 +200,12 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       lastMarkerPositionRef.current = { lat, lng };
 
       const locationDetails = locationDetailsRef.current;
-      const markerLabel = mode === 'citizen' ? 'You are here' : 'Reported location';
-      const locationLabel = mode === 'citizen' ? 'Live GPS' : 'Location';
+      const markerLabel = mode === 'citizen'
+        ? 'You are here'
+        : mode === 'admin'
+          ? 'My GPS location'
+          : 'Reported location';
+      const locationLabel = mode === 'citizen' ? 'Live GPS' : mode === 'admin' ? 'GPS' : 'Reported location';
       const popupContent = `
         <div class="p-1 font-sans text-xs min-w-[210px]">
           <div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-1.5">
@@ -233,6 +224,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             <div class="text-[10px] text-slate-500 leading-tight">
                 ${escapePopupText(locationDetails.address || `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`)}
             </div>
+            ${locationDetails.city ? `<div class="text-[10px] text-slate-600">${escapePopupText(locationDetails.city)}</div>` : ''}
             <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1.5 border-t border-slate-100">
                 ${mode === 'citizen' ? `<span>Accuracy: <strong class="text-slate-800 font-mono">±${Math.round(accuracyMeters)}m</strong></span><span class="text-sky-600 font-semibold">Active Sensor</span>` : '<span>Complaint location</span>'}
             </div>
@@ -281,9 +273,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    const startLat = activeLat ?? (mode === 'admin' ? 26.12 : 20.0);
-    const startLng = activeLng ?? (mode === 'admin' ? 85.38 : 0.0);
-    const startZoom = activeLat !== undefined && activeLng !== undefined ? 16 : mode === 'admin' ? 11 : 3;
+    const startLat = activeLat ?? 0;
+    const startLng = activeLng ?? 0;
+    const startZoom = activeLat !== undefined && activeLng !== undefined ? 16 : 2;
 
     const map = L.map(mapContainerRef.current, {
       center: [startLat, startLng],
@@ -413,7 +405,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (markers.length > 0) {
       map.fitBounds(clusterLayer.getBounds().pad(0.15), { maxZoom: 14, animate: false });
     } else {
-      map.setView([26.12, 85.38], 11, { animate: false });
+      map.setView([0, 0], 2, { animate: false });
     }
   }, [complaints, mode]);
 
@@ -557,6 +549,38 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     }
   };
 
+  const handleAdminGpsDetection = async () => {
+    setIsLocatingInternal(true);
+    setAdminGpsError(null);
+    try {
+      const resolvedLocation = await locationService.getCompleteLocation();
+      setAdminGpsLocation(resolvedLocation);
+      setDerivedWard(resolvedLocation.ward);
+      setDerivedCity(resolvedLocation.city);
+      setDerivedAddress(resolvedLocation.address);
+      setLiveLocation({
+        lat: resolvedLocation.latitude,
+        lng: resolvedLocation.longitude,
+        accuracy: resolvedLocation.accuracy,
+        timestamp: resolvedLocation.timestamp,
+      });
+      updateMarkerAndCenter(
+        resolvedLocation.latitude,
+        resolvedLocation.longitude,
+        resolvedLocation.accuracy,
+        true
+      );
+      hasAutoCenteredRef.current = true;
+      onLocationChangeRef.current?.(resolvedLocation);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to acquire this device location.';
+      setAdminGpsError(message);
+      console.error('[JalSetu Map] Admin GPS location acquisition failed.', error);
+    } finally {
+      setIsLocatingInternal(false);
+    }
+  };
+
   // Switch Map Layer (OSM Standard -> OSM Humanitarian -> Esri Satellite)
   const handleCycleLayer = () => {
     setActiveLayerKey((prev) => (prev === 'osm' ? 'osm_hot' : prev === 'osm_hot' ? 'satellite' : 'osm'));
@@ -623,6 +647,18 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             <Compass className={`w-4 h-4 ${isLocating ? 'animate-spin text-sky-600' : ''}`} />
           </button>
         )}
+        {mode === 'admin' && showGpsControl && (
+          <button
+            type="button"
+            onClick={() => void handleAdminGpsDetection()}
+            aria-label="Detect my GPS location"
+            title="Detect my GPS location"
+            disabled={isLocating}
+            className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-sm transition-all cursor-pointer focus-visible:outline-none text-slate-700 hover:text-sky-600 hover:bg-sky-50 disabled:opacity-50"
+          >
+            <Compass className={`w-4 h-4 ${isLocating ? 'animate-spin text-sky-600' : ''}`} />
+          </button>
+        )}
 
         {/* Layer Switcher Button */}
         <button
@@ -654,6 +690,26 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           {emptyMessage || 'No complaint locations to display.'}
         </div>
       )}
+      {mode === 'admin' && showGpsControl && adminGpsLocation && (
+        <div className="absolute bottom-3 right-3 z-40 max-w-[min(80%,22rem)] rounded-xl border border-sky-200 bg-white/95 px-3 py-2 text-[11px] text-slate-700 shadow-sm">
+          <div className="font-bold text-sky-800">Your GPS location</div>
+          <div>
+            {adminGpsLocation.wardNumber
+              ? `Ward ${adminGpsLocation.wardNumber}${adminGpsLocation.ward ? ` · ${adminGpsLocation.ward}` : ''}`
+              : adminGpsLocation.wardLookupStatus === 'geocoder-matched'
+                ? `${adminGpsLocation.ward} (geocoder result; boundary not verified)`
+              : adminGpsLocation.wardLookupStatus === 'lookup-unavailable'
+                ? 'Ward lookup unavailable'
+                : 'No verified ward boundary'}
+            {adminGpsLocation.city ? ` · ${adminGpsLocation.city}` : ' · City unavailable'}
+          </div>
+        </div>
+      )}
+      {mode === 'admin' && showGpsControl && adminGpsError && (
+        <div role="alert" className="absolute bottom-3 right-3 z-40 max-w-[min(80%,22rem)] rounded-xl border border-rose-200 bg-white/95 px-3 py-2 text-[11px] text-rose-800 shadow-sm">
+          {adminGpsError}
+        </div>
+      )}
 
       {mode === 'citizen' && activeLat !== undefined && activeLng !== undefined && (
         <div className="absolute bottom-3 left-3 z-40 bg-white/95 backdrop-blur-md p-3 rounded-xl border border-slate-200/90 shadow-sm max-w-[280px] sm:max-w-xs text-left pointer-events-auto">
@@ -662,7 +718,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             <span className="text-sky-700 font-extrabold">You are here</span>
             <span className="text-slate-300">·</span>
             <span className="text-slate-600 truncate">
-              {currentWardDisplay ? `${currentWardDisplay}` : 'Verified GPS Position'}
+              {currentWardDisplay || 'Ward unavailable'}
+              {currentCityDisplay ? ` · ${currentCityDisplay}` : ' · City unavailable'}
             </span>
           </div>
 

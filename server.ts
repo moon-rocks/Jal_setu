@@ -159,7 +159,10 @@ async function verifyAdminCaller(req: Request): Promise<{ isAdmin: boolean; user
       return { isAdmin: false };
     }
 
-    const { data: profile } = await callerSupabase
+    // Profile rows are protected by RLS. Use the server client after the
+    // bearer token has been verified; querying profiles with the anon caller
+    // client can return no row even for a valid administrator.
+    const { data: profile } = await serverSupabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -186,8 +189,10 @@ app.post(['/api/admin/reject-report', '/api/admin/delete-report'], async (req: R
   try {
     const { isAdmin, userId: adminUserId } = await verifyAdminCaller(req);
     if (!isAdmin) return res.status(403).json({ success: false, error: 'Unauthorized.' });
-    const accessToken = req.headers.authorization!.slice('Bearer '.length);
-    const callerSupabase = createCallerClient(accessToken);
+    // Authorization has already been verified above. Use the server-side
+    // privileged client for the destructive operation so report RLS policies
+    // cannot block an authorized municipal administrator.
+    const adminSupabase = serverSupabase;
 
     const reportKey = typeof req.body?.reportId === 'string' ? req.body.reportId.trim() : '';
     const deletionReason = req.body?.reason === 'admin_rejection' ? 'admin_rejection' : 'admin_delete';
@@ -195,7 +200,7 @@ app.post(['/api/admin/reject-report', '/api/admin/delete-report'], async (req: R
       return res.status(400).json({ success: false, error: 'A valid report ID is required.' });
     }
 
-    let reportQuery = callerSupabase.from('reports').select('id, report_number');
+    let reportQuery = adminSupabase.from('reports').select('id, report_number');
     reportQuery = isUuid(reportKey)
       ? reportQuery.eq('id', reportKey)
       : reportQuery.eq('report_number', reportKey);
@@ -206,11 +211,11 @@ app.post(['/api/admin/reject-report', '/api/admin/delete-report'], async (req: R
     const reportId = report?.id || (isUuid(reportKey) ? reportKey : null);
     if (!reportId) return res.status(404).json({ success: false, error: 'Report not found.' });
 
-    const paths = await getAllReportStoragePaths(callerSupabase, reportId);
-    await removeReportStoragePaths(callerSupabase, paths);
+    const paths = await getAllReportStoragePaths(adminSupabase, reportId);
+    await removeReportStoragePaths(adminSupabase, paths);
 
     if (report) {
-      const { error: notificationError } = await callerSupabase
+      const { error: notificationError } = await adminSupabase
         .from('notifications')
         .delete()
         .eq('report_id', reportId);
@@ -218,16 +223,16 @@ app.post(['/api/admin/reject-report', '/api/admin/delete-report'], async (req: R
         return res.status(500).json({ success: false, error: `Unable to remove report notifications: ${notificationError.message}` });
       }
 
-      const { error: deleteError } = await callerSupabase
+      const { error: deleteError } = await adminSupabase
         .from('reports')
         .delete()
         .eq('id', reportId);
       if (deleteError) return res.status(500).json({ success: false, error: deleteError.message });
 
-      const remainingPaths = await listReportStoragePaths(callerSupabase, reportId);
+      const remainingPaths = await listReportStoragePaths(adminSupabase, reportId);
       if (remainingPaths.length > 0) {
         try {
-          await removeReportStoragePaths(callerSupabase, remainingPaths);
+          await removeReportStoragePaths(adminSupabase, remainingPaths);
         } catch (cleanupError) {
           const message = cleanupError instanceof Error ? cleanupError.message : 'Unknown storage error.';
           return res.status(500).json({ success: false, error: `Report deleted, but remaining evidence cleanup failed: ${message}` });
@@ -235,7 +240,7 @@ app.post(['/api/admin/reject-report', '/api/admin/delete-report'], async (req: R
       }
     }
 
-    const { error: logError } = await callerSupabase.from('audit_logs').insert({
+    const { error: logError } = await adminSupabase.from('audit_logs').insert({
       user_id: adminUserId,
       action: 'DELETE_REPORT',
       entity_type: 'REPORT',
@@ -424,7 +429,6 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
       ['Phone', phone, 50],
       ['Designation', designation, 100],
       ['Department', department, 100],
-      ['Assigned area', assignedArea, 150],
       ['Ward', ward, 100],
       ['Team name', teamName, 150],
     ];
@@ -451,7 +455,7 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
     const cleanPhone = phone.trim();
     const cleanDesignation = designation.trim();
     const cleanDepartment = department.trim();
-    const cleanAssignedArea = assignedArea.trim();
+    const cleanAssignedArea = typeof assignedArea === 'string' ? assignedArea.trim() : '';
     const cleanTeamName = teamName.trim();
 
     const { data: team, error: teamError } = await serverSupabase
@@ -473,8 +477,19 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
     if (wardError) {
       return res.status(500).json({ success: false, error: `Unable to verify municipal ward: ${wardError.message}` });
     }
-    if (!wardRecord) {
-      return res.status(400).json({ success: false, error: 'Select an existing municipal ward.' });
+    const isPrototypeWard = /^(?:[1-9]|[1-4][0-9])$/.test(ward.trim());
+    if (!wardRecord && !isPrototypeWard) {
+      return res.status(400).json({ success: false, error: 'Select a municipal ward from 1 to 49.' });
+    }
+    const selectedWard = wardRecord || {
+      id: null,
+      ward_number: ward.trim(),
+      ward_name: `Ward ${ward.trim()}`,
+      city: 'Muzaffarpur',
+    };
+    const resolvedAssignedArea = cleanAssignedArea || selectedWard.ward_name || `Ward ${selectedWard.ward_number}`;
+    if (resolvedAssignedArea.length > 150) {
+      return res.status(400).json({ success: false, error: 'Assigned area must be at most 150 characters.' });
     }
 
     // Never accept a role from the browser; team accounts are always FIELD_TEAM.
@@ -522,18 +537,19 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
       return null;
     };
 
-    // 2. Create the profile with a hard-coded non-admin role.
-    const { error: profileError } = await serverSupabase.from('profiles').insert({
+    // The auth trigger may already have created a minimal citizen profile.
+    // Upsert the verified team profile instead of inserting a duplicate row.
+    const { error: profileError } = await serverSupabase.from('profiles').upsert({
       id: createdUserId,
       email: cleanEmail,
       full_name: cleanName,
       phone: cleanPhone,
       role: targetRole,
-      ward_id: wardRecord.id,
-      ward_name: wardRecord.ward_name,
-      city: wardRecord.city,
+      ward_id: selectedWard.id,
+      ward_name: selectedWard.ward_name,
+      city: selectedWard.city,
       avatar_url: typeof avatarUrl === 'string' && avatarUrl.trim() ? avatarUrl.trim() : null,
-    });
+    }, { onConflict: 'id' });
     if (profileError) {
       const rollbackError = await rollbackAuthUser();
       return res.status(500).json({
@@ -553,12 +569,11 @@ app.post('/api/admin/create-team-member', async (req: Request, res: Response) =>
       role: cleanDesignation,
       designation: cleanDesignation,
       department: cleanDepartment,
-      assigned_area: cleanAssignedArea,
-      ward: wardRecord.ward_number,
+      assigned_area: resolvedAssignedArea,
+      ward: selectedWard.ward_number,
       team_name: team.name,
       responsibilities: typeof responsibilities === 'string' ? responsibilities.trim() || null : null,
       status: 'active',
-      avatar_url: typeof avatarUrl === 'string' && avatarUrl.trim() ? avatarUrl.trim() : null,
     };
 
     const { data: insertedMember, error: insertErr } = await serverSupabase
@@ -707,6 +722,64 @@ app.post('/api/admin/toggle-team-status', async (req: Request, res: Response) =>
     return res.json({ success: true, status });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/admin/team-members/:memberId', async (req: Request, res: Response) => {
+  try {
+    const { isAdmin, userId: adminUserId } = await verifyAdminCaller(req);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'Unauthorized.' });
+    if (!requireServiceRole(res, 'Team-member deletion requires a valid server-side Supabase service-role key.')) return;
+
+    const memberId = req.params.memberId?.trim();
+    if (!memberId) return res.status(400).json({ success: false, error: 'Team member ID is required.' });
+
+    const { data: member, error: lookupError } = await serverSupabase
+      .from('team_members')
+      .select('id, user_id, profile_id, email, name')
+      .eq('id', memberId)
+      .maybeSingle();
+    if (lookupError) return res.status(500).json({ success: false, error: lookupError.message });
+    if (!member) return res.status(404).json({ success: false, error: 'Team member not found.' });
+
+    const { error: reportError } = await serverSupabase
+      .from('reports')
+      .update({ assigned_member_id: null, assigned_member_name: null, updated_at: new Date().toISOString() })
+      .eq('assigned_member_id', member.id);
+    if (reportError) return res.status(500).json({ success: false, error: `Unable to release assigned reports: ${reportError.message}` });
+
+    const { error: assignmentError } = await serverSupabase
+      .from('team_assignments')
+      .delete()
+      .eq('team_member_id', member.id);
+    if (assignmentError && !/column .*team_member_id|relation .*team_assignments/i.test(assignmentError.message)) {
+      return res.status(500).json({ success: false, error: `Unable to remove team assignments: ${assignmentError.message}` });
+    }
+
+    const { error: memberDeleteError } = await serverSupabase.from('team_members').delete().eq('id', member.id);
+    if (memberDeleteError) return res.status(500).json({ success: false, error: memberDeleteError.message });
+
+    const profileId = member.profile_id || member.user_id;
+    if (profileId) {
+      const { error: profileDeleteError } = await serverSupabase.from('profiles').delete().eq('id', profileId);
+      if (profileDeleteError) return res.status(500).json({ success: false, error: `Member removed, but profile cleanup failed: ${profileDeleteError.message}` });
+    }
+    if (member.user_id) {
+      const { error: authDeleteError } = await serverSupabase.auth.admin.deleteUser(member.user_id);
+      if (authDeleteError) return res.status(500).json({ success: false, error: `Member removed, but login cleanup failed: ${authDeleteError.message}` });
+    }
+
+    await serverSupabase.from('audit_logs').insert({
+      user_id: adminUserId,
+      action: 'DELETE_TEAM_MEMBER',
+      entity_type: 'TEAM_MEMBER',
+      entity_id: member.id,
+      metadata: { name: member.name, email: member.email },
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Team member deletion failed:', error);
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unable to delete team member.' });
   }
 });
 

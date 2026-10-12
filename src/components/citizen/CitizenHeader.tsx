@@ -6,7 +6,7 @@ import { CitizenSearchBar } from './CitizenSearchBar';
 import { NavLink } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
 import { useLocationContext } from '../../context/LocationContext';
-import { locationService } from '../../services/locationService';
+import { formatVerifiedLocationLabel, locationService } from '../../services/locationService';
 
 export interface CitizenHeaderProps {
   onOpenDrawer: () => void;
@@ -27,7 +27,7 @@ export const CitizenHeader: React.FC<CitizenHeaderProps> = ({
   const { location, selectManualWard } = useLocationContext();
 
   const detectedWardLabel = location
-    ? `${location.wardNumber || location.ward}, ${location.city}`
+    ? formatVerifiedLocationLabel(location)
     : 'Select Municipal Ward';
 
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
@@ -48,9 +48,19 @@ export const CitizenHeader: React.FC<CitizenHeaderProps> = ({
   // Sync with detected location if initialWard not explicitly set
   useEffect(() => {
     if (location && !initialWard) {
-      setCurrentWard(`${location.wardNumber || location.ward}, ${location.city}`);
+      setCurrentWard(formatVerifiedLocationLabel(location));
+      if (location.wardNumber && (
+        location.wardLookupStatus === 'matched'
+        || location.wardLookupStatus === 'geocoder-matched'
+      )) {
+        onSelectWard?.(location.wardNumber);
+      }
     }
-  }, [location, initialWard]);
+  }, [location, initialWard, onSelectWard]);
+
+  useEffect(() => {
+    if (initialWard) setCurrentWard(initialWard);
+  }, [initialWard]);
 
   const handleSelectWard = (ward: (typeof wardOptions)[number]) => {
     setCurrentWard(`${ward.wardNumber}, ${ward.city}`);
@@ -81,7 +91,7 @@ export const CitizenHeader: React.FC<CitizenHeaderProps> = ({
           </button>
 
           {isWardDropdownOpen && (
-            <div className="absolute left-0 top-full mt-2 w-56 bg-white rounded-2xl border border-slate-200 shadow-xl py-2 z-50">
+            <div className="absolute left-0 top-full mt-2 w-56 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain bg-white rounded-2xl border border-slate-200 shadow-xl py-2 z-50">
               <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 mb-1">
                 {t('header.selectWard')}
               </div>
@@ -94,7 +104,7 @@ export const CitizenHeader: React.FC<CitizenHeaderProps> = ({
                     currentWard === `${ward.wardNumber}, ${ward.city}` ? 'bg-sky-50/70 text-sky-700 font-bold' : 'text-slate-700'
                   }`}
                 >
-                  <span>{ward.name}</span>
+                  <span>{ward.name || `Ward ${ward.wardNumber}`}</span>
                   {currentWard === `${ward.wardNumber}, ${ward.city}` && <span className="text-[10px] text-sky-600 font-bold">{t('header.active')}</span>}
                 </button>
               ))}

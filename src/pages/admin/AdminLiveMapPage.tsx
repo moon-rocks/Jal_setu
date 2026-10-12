@@ -38,6 +38,10 @@ export const AdminLiveMapPage: React.FC = () => {
   const mappedCount = filteredReports.filter((report) =>
     typeof report.location.latitude === 'number' && typeof report.location.longitude === 'number'
   ).length;
+  const mappedCities = Array.from(new Set(
+    filteredReports.map((report) => report.location.city.trim()).filter(Boolean)
+  )).sort();
+  const citySummary = mappedCities.length > 0 ? mappedCities.join(', ') : 'city unavailable';
 
   return (
     <div className="space-y-6 select-none">
@@ -48,7 +52,7 @@ export const AdminLiveMapPage: React.FC = () => {
             Municipal Complaint Location Map
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            {mappedCount} complaint locations plotted across Muzaffarpur.
+            {mappedCount} complaint locations plotted · {citySummary}.
           </p>
         </div>
 
@@ -81,9 +85,10 @@ export const AdminLiveMapPage: React.FC = () => {
       <MapContainer
         mode="admin"
         title="Complaint Locations"
-        subtitle={`Muzaffarpur · ${mappedCount} locations mapped`}
+        subtitle={`${citySummary} · ${mappedCount} locations mapped`}
         complaints={filteredReports}
         emptyMessage={filteredReports.length === 0 ? 'No complaints match the selected filters.' : 'Matching complaints have no valid coordinates.'}
+        showGpsControl
         heightClass="h-[520px] sm:h-[600px]"
       />
 

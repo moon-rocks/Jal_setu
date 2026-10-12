@@ -67,7 +67,11 @@ export const CitizenReportPage: React.FC = () => {
       if (freshLoc) {
         setReportLocation(freshLoc);
         if (!freshLoc.wardId || !freshLoc.wardNumber || !freshLoc.ward) {
-          setGpsError('GPS was acquired, but no configured PostGIS ward boundary contains this location.');
+          setGpsError(
+            freshLoc.wardLookupStatus === 'lookup-unavailable'
+              ? 'GPS was acquired, but the verified ward lookup is currently unavailable. Please try again later.'
+              : 'GPS was acquired, but no verified municipal ward boundary contains this location.'
+          );
         }
       } else {
         setGpsError('Please grant location permission to acquire fresh GPS coordinates.');
@@ -92,7 +96,7 @@ export const CitizenReportPage: React.FC = () => {
   }, []);
 
   const autoLocationText = reportLocation
-    ? `${reportLocation.wardNumber ? `Ward ${reportLocation.wardNumber}` : 'Ward boundary unavailable'} · ${reportLocation.latitude.toFixed(6)}, ${reportLocation.longitude.toFixed(6)}`
+    ? `${reportLocation.wardNumber ? `Ward ${reportLocation.wardNumber}${reportLocation.ward ? ` · ${reportLocation.ward}` : ''}` : 'Ward boundary unavailable'}${reportLocation.city ? ` · ${reportLocation.city}` : ''} · ${reportLocation.latitude.toFixed(6)}, ${reportLocation.longitude.toFixed(6)}`
     : 'GPS Location Pending';
 
   const selectedEvidence = evidencePhotos[selectedEvidenceIndex];

@@ -64,7 +64,9 @@ export const teamService = {
     }
 
     try {
-      const requestedWards = [...new Set(teamData.assignedWards.map((ward) => ward.trim()).filter(Boolean))];
+      const requestedWards = [...new Set(teamData.assignedWards
+        .map((ward) => ward.trim().replace(/^ward\s+/i, ''))
+        .filter(Boolean))];
       if (!requestedWards.length) {
         return { success: false, error: 'Assign at least one existing municipal ward to the field team.' };
       }
@@ -78,9 +80,24 @@ export const teamService = {
         wardByLabel.set(String(ward.ward_number || '').trim().toLowerCase(), ward.ward_number);
         wardByLabel.set(String(ward.ward_name || '').trim().toLowerCase(), ward.ward_number);
       }
-      const matchedWards = requestedWards.map((label) => wardByLabel.get(label.toLowerCase()));
+      const hasConfiguredBoundaries = wardByLabel.size > 0;
+      const matchedWards = requestedWards.map((label) => {
+        const configuredWard = wardByLabel.get(label.toLowerCase());
+        if (configuredWard) return configuredWard;
+
+        // Muzaffarpur's official SEC numbering is 1-49, but boundary geometry
+        // is not currently published in this prototype database. Keep these
+        // assignments explicitly manual instead of pretending they are GIS matches.
+        if (!hasConfiguredBoundaries && /^(?:[1-9]|[1-4][0-9])$/.test(label)) return label;
+        return undefined;
+      });
       if (matchedWards.some((wardNumber) => !wardNumber)) {
-        return { success: false, error: 'Every assigned area must match a configured municipal ward number or name.' };
+        return {
+          success: false,
+          error: hasConfiguredBoundaries
+            ? 'Every assigned area must match a configured municipal ward number or name.'
+            : 'Use a Muzaffarpur ward number from 1 to 49. Ward boundaries are not configured yet, so assignments remain manual prototype areas.',
+        };
       }
       const normalizedWards = matchedWards.filter((wardNumber): wardNumber is string => Boolean(wardNumber));
 
@@ -91,7 +108,6 @@ export const teamService = {
           vehicle_number: teamData.vehicleNumber,
           assigned_wards: normalizedWards,
           members_count: teamData.membersCount,
-          status: 'available',
         })
         .select()
         .single();
@@ -194,7 +210,7 @@ export const teamService = {
     try {
       const { error } = await supabase
         .from('field_teams')
-        .update({ status: status === 'active' ? 'available' : status })
+        .update({ status })
         .eq('id', teamId);
       return !error;
     } catch {
