@@ -81,6 +81,8 @@ GitHub Pages hosts only the Vite static frontend; it does not run `server.ts`. T
 
 The backend must also have `SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `FRONTEND_ORIGIN` configured. Set `FRONTEND_ORIGIN` to the exact GitHub Pages origin, for example `https://moon-rocks.github.io` (include the repository path only in `VITE_API_BASE_URL`, not in `FRONTEND_ORIGIN`). Multiple frontend origins can be comma-separated. Do not put the service-role key in GitHub Pages variables or any `VITE_*` variable. After adding or changing these values, trigger a new deployment because Vite embeds them at build time. Without `VITE_API_BASE_URL`, browser requests fall back to the GitHub Pages origin and return 404 for `/api/admin/*`; without `FRONTEND_ORIGIN`, the browser blocks cross-origin API requests.
 
+The repository includes a [Render blueprint](./render.yaml). Deploy it as a Web Service, set the four prompted backend secrets, and use the generated service URL as `VITE_API_BASE_URL`. Verify `https://<backend-host>/api/health` returns `{"ok":true}` before redeploying GitHub Pages. A GitHub Pages URL must never be used as `VITE_API_BASE_URL`; it cannot accept the POST request used by team-member creation and responds with `405 Not Allowed`.
+
 ### 6. Run the Application
 
 ```bash
@@ -94,8 +96,7 @@ Use a Node.js host such as Render, Railway, Fly.io, or a VM, then set the same e
 
 ```bash
 npm install
-npm run build
-PORT=3000 node server.ts
+npm start
 ```
 
 The app serves the built React bundle from the same Express instance in production, while API routes like `/api/admin/create-team-member` remain available to the frontend.

@@ -33,6 +33,10 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true });
+});
+
 const isPlaceholderValue = (value?: string) => !value || /example\.supabase\.co|your-project-id|placeholder|replace[-_ ]?me/i.test(value);
 const supabaseUrl = [process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL].find((value) => !isPlaceholderValue(value));
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
