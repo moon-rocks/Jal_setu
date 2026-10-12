@@ -5,9 +5,17 @@ import { stampEvidencePhoto } from './evidencePhotoService';
 const buildApiUrl = (path: string) => {
   const configuredBase = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return configuredBase
-    ? `${configuredBase}${normalizedPath}`
-    : `${typeof window !== 'undefined' ? window.location.origin : ''}${normalizedPath}`;
+
+  if (configuredBase) {
+    return `${configuredBase}${normalizedPath}`;
+  }
+
+  if (typeof window !== 'undefined') {
+    const basePath = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+    return new URL(`${basePath}${normalizedPath}`, window.location.origin).toString();
+  }
+
+  return normalizedPath;
 };
 
 async function getAuthenticatedCitizenUser() {

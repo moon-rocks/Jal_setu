@@ -19,10 +19,23 @@ const buildApiUrl = (path: string) => {
   }
 
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}${normalizedPath}`;
+    const basePath = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+    return new URL(`${basePath}${normalizedPath}`, window.location.origin).toString();
   }
 
   return normalizedPath;
+};
+
+const getFetchErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof TypeError && /failed to fetch/i.test(error.message)) {
+    return 'Unable to reach the backend API. Start the JalSetu server or set VITE_API_BASE_URL to the deployed backend URL.';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
 };
 
 const readJsonResponse = async <T = any>(response: Response): Promise<{ ok: boolean; data?: T; error?: string }> => {
@@ -227,7 +240,7 @@ export const teamMemberService = {
       }
       return { success: true, teamMember: mapTeamMember(result.data.teamMember) };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unable to reach the provisioning service.' };
+      return { success: false, error: getFetchErrorMessage(error, 'Unable to reach the provisioning service.') };
     }
   },
 
@@ -277,7 +290,7 @@ export const teamMemberService = {
         ? { success: true }
         : { success: false, error: result.error || result.data?.error || 'Unable to delete team member.' };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unable to reach the deletion service.' };
+      return { success: false, error: getFetchErrorMessage(error, 'Unable to reach the deletion service.') };
     }
   },
 
@@ -299,7 +312,7 @@ export const teamMemberService = {
         ? { success: true }
         : { success: false, error: result.error || result.data?.error || 'Unable to request a password reset.' };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unable to reach the password service.' };
+      return { success: false, error: getFetchErrorMessage(error, 'Unable to reach the password service.') };
     }
   },
 
